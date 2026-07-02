@@ -33,14 +33,18 @@ Passing a directory sets the file-tree root; files are opened in buffers.
 | `C-w` / `M-w` | kill / copy region |
 | `C-y` / `M-y` | yank / yank-pop |
 | `M-d` / `M-backspace` | kill word forward / backward |
+| `M-up` / `M-down` | move current line (or marked block) up / down |
 | `C-s` / `C-r` | incremental search (smart case, wraps) |
 | `C-x t` | toggle terminal panel (keys pass through raw; only `C-x` is reserved) |
 | `C-c C-v` | cycle markdown preview: split / preview-only / off |
 | `M-x`, `Ctrl+Shift+P` | command palette |
 | `C-g` / `Esc` | cancel chord / prompt / search / mark |
 
+`ESC` acts as the Meta prefix, so `ESC w` == `M-w`, `ESC x` == `M-x`, etc.
+
 The file tree opens files on selection. The default theme is `pike-light`
-(high-contrast dark-on-white).
+(high-contrast dark-on-white). The markdown preview is linked: it follows
+the editor's scroll position.
 
 ## Development
 

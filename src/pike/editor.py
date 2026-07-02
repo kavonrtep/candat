@@ -46,6 +46,26 @@ def language_for(path: Path | None) -> str | None:
     return LANGUAGES.get(path.suffix.lower())
 
 
+# Meta (M-) commands: key -> editor action. Dispatched from _on_key so they
+# work both for real alt+key events (which carry a printable character that
+# TextArea would otherwise self-insert) and for ESC-prefixed sequences, which
+# many terminals send as a separate escape key followed by the base key.
+META_ACTIONS: dict[str, str] = {
+    "f": "cursor_word_right",
+    "b": "cursor_word_left",
+    "v": "cursor_page_up",
+    "d": "kill_word",
+    "w": "copy_region",
+    "y": "yank_pop",
+    "backspace": "kill_word_backward",
+    "less_than_sign": "buffer_home",
+    "greater_than_sign": "buffer_end",
+    "up": "move_lines_up",
+    "down": "move_lines_down",
+    "x": "app.command_palette",  # M-x (also via ESC x)
+}
+
+
 class EditorBuffer(TextArea):
     """A text editing buffer, optionally backed by a file."""
 
@@ -55,31 +75,16 @@ class EditorBuffer(TextArea):
         Binding("ctrl+b", "cursor_left", "backward-char", show=False),
         Binding("ctrl+n", "cursor_down", "next-line", show=False),
         Binding("ctrl+p", "cursor_up", "previous-line", show=False),
-        Binding("alt+f", "cursor_word_right", "forward-word", show=False),
-        Binding("alt+b", "cursor_word_left", "backward-word", show=False),
         Binding("ctrl+v", "cursor_page_down", "scroll-up", show=False),
-        Binding("alt+v", "cursor_page_up", "scroll-down", show=False),
-        Binding(
-            "alt+less_than_sign,ctrl+home", "buffer_home", "beginning-of-buffer",
-            show=False,
-        ),
-        Binding(
-            "alt+greater_than_sign,ctrl+end", "buffer_end", "end-of-buffer",
-            show=False,
-        ),
+        Binding("ctrl+home", "buffer_home", "beginning-of-buffer", show=False),
+        Binding("ctrl+end", "buffer_end", "end-of-buffer", show=False),
         # Mark and region.
         Binding("ctrl+@", "set_mark", "set-mark", show=False),
         # Kill ring.
         Binding("ctrl+k", "kill_line", "kill-line", show=False),
         Binding("ctrl+w", "kill_region", "kill-region", show=False),
-        Binding("alt+w", "copy_region", "kill-ring-save", show=False),
         Binding("ctrl+y", "yank", "yank", show=False),
-        Binding("alt+y", "yank_pop", "yank-pop", show=False),
-        Binding("alt+d", "kill_word", "kill-word", show=False),
-        Binding(
-            "alt+backspace,ctrl+backspace", "kill_word_backward", "backward-kill-word",
-            show=False,
-        ),
+        Binding("ctrl+backspace", "kill_word_backward", "backward-kill-word", show=False),
         # Undo (C-/ arrives as ctrl+underscore).
         Binding("ctrl+underscore", "undo", "undo", show=False),
         # Incremental search.
@@ -108,6 +113,7 @@ class EditorBuffer(TextArea):
         self._last_command: str | None = None
         self._yank_start: tuple[int, int] | None = None
         self._yank_end: tuple[int, int] | None = None
+        self._meta = False  # one-shot Meta prefix set by a bare ESC
         self._apply_language()
 
     @property
@@ -146,6 +152,26 @@ class EditorBuffer(TextArea):
 
     async def _on_key(self, event: events.Key) -> None:
         self._last_command, self._pending = self._pending, None
+        # ESC is the Meta prefix, as in emacs: it makes the next key an M- key.
+        if event.key == "escape":
+            self._meta = True
+            self._pending = self._last_command  # don't break kill/yank chains
+            event.stop()
+            event.prevent_default()
+            return
+        meta_key: str | None = None
+        if self._meta:
+            self._meta = False
+            meta_key = event.key
+        elif event.key.startswith("alt+"):
+            meta_key = event.key[4:]
+        if meta_key is not None:
+            # Never let TextArea self-insert the base character of an M- key.
+            event.stop()
+            event.prevent_default()
+            if (action := META_ACTIONS.get(meta_key)) is not None:
+                await self.run_action(action)
+            return
         # Emacs: typing while the region is active inserts at point without
         # deleting the region (no delete-selection-mode).
         if self.mark_active and event.is_printable:
@@ -324,6 +350,53 @@ class EditorBuffer(TextArea):
         result = self.insert(text, self._yank_start)
         self._yank_end = result.end_location
         self._pending = "yank"
+
+    # -- line moving (M-up / M-down) --------------------------------------------
+
+    def _selected_rows(self) -> tuple[int, int]:
+        """First and last row spanned by the selection (or the cursor line).
+        A selection ending at column 0 does not include that final line."""
+        (r0, c0), (r1, c1) = sorted((self.selection.start, self.selection.end))
+        if r1 > r0 and c1 == 0:
+            r1 -= 1
+        return r0, r1
+
+    def _move_lines(self, offset: int) -> None:
+        first, last = self._selected_rows()
+        document = self.document
+        if offset < 0 and first == 0:
+            return
+        if offset > 0 and last >= document.line_count - 1:
+            return
+        block = [document.get_line(row) for row in range(first, last + 1)]
+        if offset < 0:
+            other = document.get_line(first - 1)
+            lines = block + [other]
+            start, end = (first - 1, 0), (last, len(block[-1]))
+        else:
+            other = document.get_line(last + 1)
+            lines = [other] + block
+            start, end = (first, 0), (last + 1, len(other))
+        sel = self.selection
+        self.replace("\n".join(lines), start, end, maintain_selection_offset=False)
+        # Keep the selection (and mark) on the moved block.
+        moved = Selection(
+            (sel.start[0] + offset, sel.start[1]), (sel.end[0] + offset, sel.end[1])
+        )
+        self.selection = moved
+        if self.mark is not None and first <= self.mark[0] <= last:
+            self.mark = (self.mark[0] + offset, self.mark[1])
+        self.scroll_cursor_visible()
+
+    def action_move_lines_up(self) -> None:
+        was_active = self.mark_active
+        self._move_lines(-1)
+        self.mark_active = was_active
+
+    def action_move_lines_down(self) -> None:
+        was_active = self.mark_active
+        self._move_lines(1)
+        self.mark_active = was_active
 
     # -- isearch ---------------------------------------------------------------
 

@@ -154,6 +154,10 @@ class PikeApp(App[None]):
             editor.display_name, Horizontal(editor, MarkdownPreview()), id=pane_id
         )
         await self.tabs.add_pane(pane)
+        # Linked preview: follow the editor's scroll position.
+        self.watch(
+            editor, "scroll_y", lambda: self._sync_preview_scroll(editor), init=False
+        )
         self.tabs.active = pane_id
         editor.focus()
         if editor.language == "markdown":
@@ -231,6 +235,18 @@ class PikeApp(App[None]):
             preview.focus()
         else:
             editor.focus()
+
+    def _sync_preview_scroll(self, editor: EditorBuffer) -> None:
+        """Keep the preview scrolled to the same relative position as the
+        editor (linked view)."""
+        pane = self._pane_of(editor)
+        if pane is None or self._preview_mode(pane) != "split":
+            return
+        if editor.max_scroll_y <= 0:
+            return
+        preview = pane.query_one(MarkdownPreview)
+        fraction = editor.scroll_y / editor.max_scroll_y
+        preview.scroll_to(y=fraction * preview.max_scroll_y, animate=False)
 
     def _schedule_preview(self, editor: EditorBuffer) -> None:
         """Debounced live preview refresh while editing markdown."""
