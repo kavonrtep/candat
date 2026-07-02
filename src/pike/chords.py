@@ -18,9 +18,12 @@ CTRL_X_MAP: dict[str, tuple[str, str]] = {
     "ctrl+s": ("save_buffer", "save buffer"),
     "ctrl+w": ("write_file", "write file (save as)"),
     "ctrl+c": ("request_quit", "quit"),
+    "ctrl+x": ("exchange_point_and_mark", "exchange point and mark"),
     "k": ("kill_buffer", "kill buffer"),
     "b": ("switch_buffer", "switch buffer"),
     "o": ("other_window", "other window"),
+    "h": ("mark_whole_buffer", "mark whole buffer"),
+    "u": ("undo_buffer", "undo"),
 }
 
 

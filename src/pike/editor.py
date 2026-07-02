@@ -1,10 +1,19 @@
-"""Editor buffer widget: a TextArea bound to an optional file on disk."""
+"""Editor buffer widget: a TextArea with emacs editing, bound to an optional file.
+
+Emacs layer: mark/region (C-space, movement extends the region while the mark
+is active), the kill ring (C-k, C-w, M-w, C-y, M-y, M-d, M-backspace), and
+emacs movement keys. The kill ring itself lives on the app so it is shared
+between buffers.
+"""
 
 from __future__ import annotations
 
 from pathlib import Path
 
+from textual import events
+from textual.binding import Binding
 from textual.widgets import TextArea
+from textual.widgets.text_area import Selection
 
 LANGUAGES: dict[str, str] = {
     ".py": "python",
@@ -40,6 +49,44 @@ def language_for(path: Path | None) -> str | None:
 class EditorBuffer(TextArea):
     """A text editing buffer, optionally backed by a file."""
 
+    BINDINGS = [
+        # Movement.
+        Binding("ctrl+f", "cursor_right", "forward-char", show=False),
+        Binding("ctrl+b", "cursor_left", "backward-char", show=False),
+        Binding("ctrl+n", "cursor_down", "next-line", show=False),
+        Binding("ctrl+p", "cursor_up", "previous-line", show=False),
+        Binding("alt+f", "cursor_word_right", "forward-word", show=False),
+        Binding("alt+b", "cursor_word_left", "backward-word", show=False),
+        Binding("ctrl+v", "cursor_page_down", "scroll-up", show=False),
+        Binding("alt+v", "cursor_page_up", "scroll-down", show=False),
+        Binding(
+            "alt+less_than_sign,ctrl+home", "buffer_home", "beginning-of-buffer",
+            show=False,
+        ),
+        Binding(
+            "alt+greater_than_sign,ctrl+end", "buffer_end", "end-of-buffer",
+            show=False,
+        ),
+        # Mark and region.
+        Binding("ctrl+@", "set_mark", "set-mark", show=False),
+        # Kill ring.
+        Binding("ctrl+k", "kill_line", "kill-line", show=False),
+        Binding("ctrl+w", "kill_region", "kill-region", show=False),
+        Binding("alt+w", "copy_region", "kill-ring-save", show=False),
+        Binding("ctrl+y", "yank", "yank", show=False),
+        Binding("alt+y", "yank_pop", "yank-pop", show=False),
+        Binding("alt+d", "kill_word", "kill-word", show=False),
+        Binding(
+            "alt+backspace,ctrl+backspace", "kill_word_backward", "backward-kill-word",
+            show=False,
+        ),
+        # Undo (C-/ arrives as ctrl+underscore).
+        Binding("ctrl+underscore", "undo", "undo", show=False),
+        # Incremental search.
+        Binding("ctrl+s", "isearch_forward", "isearch", show=False),
+        Binding("ctrl+r", "isearch_backward", "isearch-backward", show=False),
+    ]
+
     def __init__(self, path: Path | None = None, text: str = "", **kwargs) -> None:
         super().__init__(
             text,
@@ -53,6 +100,14 @@ class EditorBuffer(TextArea):
         self.path = path
         self.modified = False
         self._saved_text = text
+        self.mark: tuple[int, int] | None = None
+        self.mark_active = False
+        # Command chaining, emacs-style: consecutive kills accumulate in one
+        # ring entry, and M-y only works right after a yank.
+        self._pending: str | None = None
+        self._last_command: str | None = None
+        self._yank_start: tuple[int, int] | None = None
+        self._yank_end: tuple[int, int] | None = None
         self._apply_language()
 
     @property
@@ -88,3 +143,196 @@ class EditorBuffer(TextArea):
         # up-to-date modified state. A buffer whose text matches what is on
         # disk is not modified, even after a programmatic load().
         self.modified = self.text != self._saved_text
+
+    async def _on_key(self, event: events.Key) -> None:
+        self._last_command, self._pending = self._pending, None
+        # Emacs: typing while the region is active inserts at point without
+        # deleting the region (no delete-selection-mode).
+        if self.mark_active and event.is_printable:
+            self.deactivate_mark()
+        await super()._on_key(event)
+
+    # -- mark and region -----------------------------------------------------
+
+    @property
+    def point(self) -> tuple[int, int]:
+        return self.selection.end
+
+    def action_set_mark(self) -> None:
+        cur = self.point
+        self.mark = cur
+        self.mark_active = True
+        self.selection = Selection(cur, cur)
+        self.app.notify("Mark set", timeout=1)
+
+    def deactivate_mark(self) -> None:
+        self.mark_active = False
+        cur = self.point
+        self.selection = Selection(cur, cur)
+
+    def exchange_point_and_mark(self) -> None:
+        if self.mark is None:
+            self.app.notify("No mark set in this buffer", severity="warning")
+            return
+        old_mark = self.mark
+        self.mark = self.point
+        self.mark_active = True
+        self.selection = Selection(self.mark, old_mark)
+        self.scroll_cursor_visible()
+
+    def mark_whole_buffer(self) -> None:
+        """C-x h: point at start, mark (active) at end."""
+        self.mark = self.document.end
+        self.mark_active = True
+        self.selection = Selection(self.document.end, (0, 0))
+        self.scroll_cursor_visible()
+
+    # Movement extends the region while the mark is active.
+
+    def _sel(self, select: bool) -> bool:
+        return select or self.mark_active
+
+    def action_cursor_right(self, select: bool = False) -> None:
+        super().action_cursor_right(self._sel(select))
+
+    def action_cursor_left(self, select: bool = False) -> None:
+        super().action_cursor_left(self._sel(select))
+
+    def action_cursor_down(self, select: bool = False) -> None:
+        super().action_cursor_down(self._sel(select))
+
+    def action_cursor_up(self, select: bool = False) -> None:
+        super().action_cursor_up(self._sel(select))
+
+    def action_cursor_word_right(self, select: bool = False) -> None:
+        super().action_cursor_word_right(self._sel(select))
+
+    def action_cursor_word_left(self, select: bool = False) -> None:
+        super().action_cursor_word_left(self._sel(select))
+
+    def action_cursor_line_start(self, select: bool = False) -> None:
+        super().action_cursor_line_start(self._sel(select))
+
+    def action_cursor_line_end(self, select: bool = False) -> None:
+        super().action_cursor_line_end(self._sel(select))
+
+    def action_cursor_page_down(self) -> None:
+        if self.mark_active:
+            self.move_cursor_relative(rows=self.content_size.height, select=True)
+        else:
+            super().action_cursor_page_down()
+
+    def action_cursor_page_up(self) -> None:
+        if self.mark_active:
+            self.move_cursor_relative(rows=-self.content_size.height, select=True)
+        else:
+            super().action_cursor_page_up()
+
+    def action_buffer_home(self) -> None:
+        self.move_cursor((0, 0), select=self.mark_active)
+
+    def action_buffer_end(self) -> None:
+        self.move_cursor(self.document.end, select=self.mark_active)
+
+    # -- kill ring -------------------------------------------------------------
+
+    def _kill_range(
+        self, start: tuple[int, int], end: tuple[int, int], *, backward: bool = False
+    ) -> None:
+        start, end = sorted((start, end))
+        text = self.get_text_range(start, end)
+        if not text:
+            return
+        ring = self.app.kill_ring
+        if self._last_command == "kill":
+            ring.add_to_top(text, before=backward)
+        else:
+            ring.push(text)
+        self.delete(start, end)
+        self._pending = "kill"
+
+    def action_kill_line(self) -> None:
+        row, col = self.point
+        line = self.document.get_line(row)
+        if col < len(line):
+            end = (row, len(line))
+        elif row + 1 < self.document.line_count:
+            end = (row + 1, 0)
+        else:
+            return
+        self._kill_range(self.point, end)
+
+    def action_kill_region(self) -> None:
+        sel = self.selection
+        if sel.is_empty:
+            self.app.notify("The region is empty", severity="warning", timeout=2)
+            return
+        self._kill_range(sel.start, sel.end)
+        self.mark_active = False
+
+    def action_copy_region(self) -> None:
+        sel = self.selection
+        if sel.is_empty:
+            self.app.notify("The region is empty", severity="warning", timeout=2)
+            return
+        start, end = sorted((sel.start, sel.end))
+        self.app.kill_ring.push(self.get_text_range(start, end))
+        self.deactivate_mark()
+
+    def _word_range(self, *, backward: bool) -> tuple[tuple[int, int], tuple[int, int]]:
+        """The range from point to the next word boundary, via the cursor
+        actions so word rules match ordinary movement."""
+        origin = self.point
+        self.selection = Selection(origin, origin)
+        if backward:
+            TextArea.action_cursor_word_left(self, select=True)
+        else:
+            TextArea.action_cursor_word_right(self, select=True)
+        target = self.selection.end
+        self.selection = Selection(origin, origin)
+        return origin, target
+
+    def action_kill_word(self) -> None:
+        start, end = self._word_range(backward=False)
+        self._kill_range(start, end)
+
+    def action_kill_word_backward(self) -> None:
+        start, end = self._word_range(backward=True)
+        self._kill_range(start, end, backward=True)
+
+    def action_yank(self) -> None:
+        text = self.app.kill_ring.current
+        if text is None:
+            self.app.notify("Kill ring is empty", severity="warning", timeout=2)
+            return
+        cur = self.point
+        self.selection = Selection(cur, cur)
+        result = self.insert(text, cur)
+        self._yank_start, self._yank_end = cur, result.end_location
+        self.mark = cur  # emacs leaves the mark at the start of yanked text
+        self.mark_active = False
+        self._pending = "yank"
+
+    def action_yank_pop(self) -> None:
+        if self._last_command != "yank" or self._yank_start is None:
+            self.app.notify("Previous command was not a yank", severity="warning", timeout=2)
+            return
+        text = self.app.kill_ring.rotate()
+        if text is None:
+            return
+        self.delete(self._yank_start, self._yank_end)
+        result = self.insert(text, self._yank_start)
+        self._yank_end = result.end_location
+        self._pending = "yank"
+
+    # -- isearch ---------------------------------------------------------------
+
+    def action_isearch_forward(self) -> None:
+        from .isearch import ISearchScreen
+
+        self.app.push_screen(ISearchScreen(self, forward=True))
+
+    def action_isearch_backward(self) -> None:
+        from .isearch import ISearchScreen
+
+        self.app.push_screen(ISearchScreen(self, forward=False))

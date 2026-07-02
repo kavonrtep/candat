@@ -19,8 +19,10 @@ from textual.widgets import (
 )
 
 from .chords import CTRL_X_MAP, ChordScreen
+from .commands import PikeCommands
 from .dialogs import ConfirmScreen, PromptScreen
 from .editor import EditorBuffer
+from .killring import KillRing
 from .theme import PIKE_LIGHT
 
 
@@ -41,6 +43,7 @@ class StatusBar(Static):
 class PikeApp(App[None]):
     TITLE = "pike"
     COMMAND_PALETTE_BINDING = "ctrl+shift+p"
+    COMMANDS = App.COMMANDS | {PikeCommands}
 
     CSS = """
     #workspace {
@@ -74,10 +77,13 @@ class PikeApp(App[None]):
         Binding("ctrl+g", "keyboard_quit", "C-g", priority=True, show=False),
         # Plain C-c does nothing on its own in emacs; keep Textual from quitting on it.
         Binding("ctrl+c", "keyboard_quit", show=False, priority=True),
+        Binding("alt+x", "command_palette", "M-x", show=False),
     ]
 
     def __init__(self, paths: list[Path] | None = None) -> None:
         super().__init__()
+        self.kill_ring = KillRing()
+        self.last_search = ""
         paths = paths or []
         self._root = Path.cwd()
         dirs = [p for p in paths if p.is_dir()]
@@ -213,9 +219,33 @@ class PikeApp(App[None]):
         self.push_screen(ChordScreen("C-x", CTRL_X_MAP))
 
     def action_keyboard_quit(self) -> None:
-        """C-g: cancel whatever is pending (top modal screen, if any)."""
+        """C-g: cancel whatever is pending — a modal screen or an active mark."""
         if len(self.screen_stack) > 1:
             self.pop_screen()
+            return
+        editor = self.active_editor
+        if editor is not None and editor.mark_active:
+            editor.deactivate_mark()
+
+    def action_exchange_point_and_mark(self) -> None:
+        if (editor := self.active_editor) is not None:
+            editor.exchange_point_and_mark()
+
+    def action_mark_whole_buffer(self) -> None:
+        if (editor := self.active_editor) is not None:
+            editor.mark_whole_buffer()
+
+    def action_undo_buffer(self) -> None:
+        if (editor := self.active_editor) is not None:
+            editor.undo()
+
+    def action_isearch_forward(self) -> None:
+        if (editor := self.active_editor) is not None:
+            editor.action_isearch_forward()
+
+    def action_isearch_backward(self) -> None:
+        if (editor := self.active_editor) is not None:
+            editor.action_isearch_backward()
 
     def action_find_file(self) -> None:
         editor = self.active_editor
