@@ -22,6 +22,7 @@ from .chords import CTRL_C_MAP, CTRL_X_MAP, ChordScreen
 from .commands import PikeCommands
 from .dialogs import ConfirmScreen, PromptScreen
 from .editor import EditorBuffer
+from .help import HelpScreen
 from .killring import KillRing
 from .preview import PREVIEW_CLASSES, PREVIEW_MODES, MarkdownPreview
 from .terminal import TerminalPane
@@ -39,7 +40,10 @@ class StatusBar(Static):
         row, col = editor.cursor_location
         language = editor.language or "text"
         where = str(editor.path) if editor.path else editor.display_name
-        self.update(f" {where}{modified}   Ln {row + 1}, Col {col + 1}   {language}")
+        self.update(
+            f" {where}{modified}   Ln {row + 1}, Col {col + 1}   {language}"
+            "   [dim]F1 help[/]"
+        )
 
 
 class PikeApp(App[None]):
@@ -95,6 +99,7 @@ class PikeApp(App[None]):
         # C-c is a prefix (mode commands), never Textual's quit.
         Binding("ctrl+c", "chord_prefix_cc", show=False, priority=True),
         Binding("alt+x", "command_palette", "M-x", show=False),
+        Binding("f1", "help", "help", show=False),
     ]
 
     def __init__(self, paths: list[Path] | None = None) -> None:
@@ -437,6 +442,9 @@ class PikeApp(App[None]):
                 ring[(index + 1) % len(ring)].focus()
                 return
         ring[0].focus()
+
+    def action_help(self) -> None:
+        self.push_screen(HelpScreen())
 
     def action_toggle_terminal(self) -> None:
         terminal = self.query_one(TerminalPane)
