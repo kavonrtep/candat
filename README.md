@@ -2,10 +2,35 @@
 
 A terminal IDE with emacs keybindings, built on [Textual](https://textual.textualize.io/).
 
+## Install
+
+From GitHub, as a standalone tool (recommended — gives you a global `candat`
+command in its own isolated environment):
+
+```sh
+uv tool install git+https://github.com/kavonrtep/candat
+# or, with pipx (needs Python >= 3.10):
+pipx install git+https://github.com/kavonrtep/candat
+```
+
+Or with plain pip into the environment of your choice:
+
+```sh
+pip install git+https://github.com/kavonrtep/candat
+```
+
+To try it once without installing anything permanently:
+
+```sh
+uvx --from git+https://github.com/kavonrtep/candat candat
+```
+
+Requires Python >= 3.10 and Linux.
+
 ## Run
 
 ```sh
-uv run candat [FILE|DIR ...]
+candat [FILE|DIR ...]
 ```
 
 Passing a directory sets the file-tree root; files are opened in buffers.
