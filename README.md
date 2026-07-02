@@ -4,25 +4,23 @@ A terminal IDE with emacs keybindings, built on [Textual](https://textual.textua
 
 ## Install
 
-From GitHub, as a standalone tool (recommended — gives you a global `candat`
-command in its own isolated environment):
+From [PyPI](https://pypi.org/project/candat/), as a standalone tool
+(recommended — gives you a global `candat` command in its own isolated
+environment):
+
+```sh
+uv tool install candat
+# or, with pipx (needs Python >= 3.10):
+pipx install candat
+```
+
+Or with plain pip into the environment of your choice: `pip install candat`.
+To try it once without installing anything permanently: `uvx candat`.
+
+The development version installs straight from GitHub:
 
 ```sh
 uv tool install git+https://github.com/kavonrtep/candat
-# or, with pipx (needs Python >= 3.10):
-pipx install git+https://github.com/kavonrtep/candat
-```
-
-Or with plain pip into the environment of your choice:
-
-```sh
-pip install git+https://github.com/kavonrtep/candat
-```
-
-To try it once without installing anything permanently:
-
-```sh
-uvx --from git+https://github.com/kavonrtep/candat candat
 ```
 
 Requires Python >= 3.10 and Linux.
