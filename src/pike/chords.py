@@ -26,6 +26,11 @@ CTRL_X_MAP: dict[str, tuple[str, str]] = {
     "u": ("undo_buffer", "undo"),
 }
 
+# Chord table for the C-c prefix (mode-specific commands, as in emacs).
+CTRL_C_MAP: dict[str, tuple[str, str]] = {
+    "ctrl+v": ("toggle_preview", "toggle markdown preview"),
+}
+
 
 class ChordScreen(ModalScreen[None]):
     """Captures the key that follows a prefix and dispatches the mapped action."""

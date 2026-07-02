@@ -18,11 +18,12 @@ from textual.widgets import (
     TextArea,
 )
 
-from .chords import CTRL_X_MAP, ChordScreen
+from .chords import CTRL_C_MAP, CTRL_X_MAP, ChordScreen
 from .commands import PikeCommands
 from .dialogs import ConfirmScreen, PromptScreen
 from .editor import EditorBuffer
 from .killring import KillRing
+from .preview import PREVIEW_CLASSES, PREVIEW_MODES, MarkdownPreview
 from .theme import PIKE_LIGHT
 
 
@@ -63,6 +64,21 @@ class PikeApp(App[None]):
     }
     EditorBuffer {
         border: none;
+        width: 1fr;
+    }
+    MarkdownPreview {
+        display: none;
+        width: 1fr;
+        border-left: solid $panel;
+        background: $background;
+        padding: 0 1;
+    }
+    TabPane.-preview-split MarkdownPreview,
+    TabPane.-preview-only MarkdownPreview {
+        display: block;
+    }
+    TabPane.-preview-only EditorBuffer {
+        display: none;
     }
     StatusBar {
         dock: bottom;
@@ -75,8 +91,8 @@ class PikeApp(App[None]):
     BINDINGS = [
         Binding("ctrl+x", "chord_prefix", "C-x", priority=True, show=False),
         Binding("ctrl+g", "keyboard_quit", "C-g", priority=True, show=False),
-        # Plain C-c does nothing on its own in emacs; keep Textual from quitting on it.
-        Binding("ctrl+c", "keyboard_quit", show=False, priority=True),
+        # C-c is a prefix (mode commands), never Textual's quit.
+        Binding("ctrl+c", "chord_prefix_cc", show=False, priority=True),
         Binding("alt+x", "command_palette", "M-x", show=False),
     ]
 
@@ -132,10 +148,14 @@ class PikeApp(App[None]):
         else:
             editor.path = path
             editor._apply_language()
-        pane = TabPane(editor.display_name, editor, id=pane_id)
+        pane = TabPane(
+            editor.display_name, Horizontal(editor, MarkdownPreview()), id=pane_id
+        )
         await self.tabs.add_pane(pane)
         self.tabs.active = pane_id
         editor.focus()
+        if editor.language == "markdown":
+            await self._set_preview_mode(pane, "split")
         return editor
 
     async def _open_path(self, path: Path) -> None:
@@ -162,6 +182,9 @@ class PikeApp(App[None]):
             self._refresh_tab_label(current)
             current.focus()
             self._refresh_status()
+            pane = self._pane_of(current)
+            if current.language == "markdown" and pane is not None:
+                await self._set_preview_mode(pane, "split")
             return
         await self._new_buffer(path)
         if not path.exists():
@@ -185,6 +208,54 @@ class PikeApp(App[None]):
         editor = self.active_editor
         self.sub_title = str(editor.path) if editor and editor.path else ""
 
+    # -- markdown preview ----------------------------------------------------
+
+    def _preview_mode(self, pane: TabPane) -> str:
+        if pane.has_class("-preview-only"):
+            return "only"
+        if pane.has_class("-preview-split"):
+            return "split"
+        return "off"
+
+    async def _set_preview_mode(self, pane: TabPane, mode: str) -> None:
+        pane.remove_class(*PREVIEW_CLASSES.values())
+        if mode in PREVIEW_CLASSES:
+            pane.add_class(PREVIEW_CLASSES[mode])
+        editor = pane.query_one(EditorBuffer)
+        preview = pane.query_one(MarkdownPreview)
+        if mode != "off":
+            await preview.render_text(editor.text)
+        if mode == "only":
+            preview.focus()
+        else:
+            editor.focus()
+
+    def _schedule_preview(self, editor: EditorBuffer) -> None:
+        """Debounced live preview refresh while editing markdown."""
+        pane = self._pane_of(editor)
+        if pane is None or self._preview_mode(pane) == "off":
+            return
+        if timer := getattr(editor, "_preview_timer", None):
+            timer.stop()
+        preview = pane.query_one(MarkdownPreview)
+        editor._preview_timer = self.set_timer(
+            0.3, lambda: preview.render_text(editor.text)
+        )
+
+    def action_toggle_preview(self) -> None:
+        editor = self.active_editor
+        pane = self._pane_of(editor) if editor else None
+        if editor is None or pane is None:
+            return
+        if editor.language != "markdown":
+            self.notify("Not a markdown buffer", severity="warning", timeout=2)
+            return
+        current = self._preview_mode(pane)
+        next_mode = PREVIEW_MODES[
+            (PREVIEW_MODES.index(current) + 1) % len(PREVIEW_MODES)
+        ]
+        self.call_later(self._set_preview_mode, pane, next_mode)
+
     # -- events --------------------------------------------------------------
 
     @on(DirectoryTree.FileSelected)
@@ -196,6 +267,8 @@ class PikeApp(App[None]):
         editor = event.text_area
         if isinstance(editor, EditorBuffer):
             self._refresh_tab_label(editor)
+            if editor.language == "markdown":
+                self._schedule_preview(editor)
         self._refresh_status()
 
     @on(TextArea.SelectionChanged)
@@ -211,12 +284,15 @@ class PikeApp(App[None]):
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         # While a modal (chord, prompt, confirm) is up, let it see these keys
         # instead of the app's priority bindings.
-        if action in ("chord_prefix", "keyboard_quit"):
+        if action in ("chord_prefix", "chord_prefix_cc", "keyboard_quit"):
             return self.screen is self.screen_stack[0]
         return True
 
     def action_chord_prefix(self) -> None:
         self.push_screen(ChordScreen("C-x", CTRL_X_MAP))
+
+    def action_chord_prefix_cc(self) -> None:
+        self.push_screen(ChordScreen("C-c", CTRL_C_MAP))
 
     def action_keyboard_quit(self) -> None:
         """C-g: cancel whatever is pending — a modal screen or an active mark."""

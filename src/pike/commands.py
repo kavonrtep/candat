@@ -21,6 +21,7 @@ COMMANDS: list[tuple[str, str, str]] = [
     ("mark-whole-buffer", "Select the entire buffer (C-x h)", "mark_whole_buffer"),
     ("exchange-point-and-mark", "Swap cursor and mark (C-x C-x)", "exchange_point_and_mark"),
     ("undo", "Undo the last edit (C-x u, C-/)", "undo_buffer"),
+    ("markdown-toggle-preview", "Cycle markdown preview: split / preview-only / off (C-c C-v)", "toggle_preview"),
     ("isearch-forward", "Incremental search forward (C-s)", "isearch_forward"),
     ("isearch-backward", "Incremental search backward (C-r)", "isearch_backward"),
     ("save-buffers-kill-terminal", "Quit pike (C-x C-c)", "request_quit"),
