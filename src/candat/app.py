@@ -39,12 +39,18 @@ class StatusBar(Static):
         if editor is None:
             self.update(" candat")
             return
-        modified = "*" if editor.modified else ""
+        # Emacs-style flags: %% read-only, ** modified, -- clean.
+        if editor.read_only:
+            flag = "%%"
+        elif editor.modified:
+            flag = "**"
+        else:
+            flag = "--"
         row, col = editor.cursor_location
         language = editor.language or "text"
         where = str(editor.path) if editor.path else editor.display_name
         self.update(
-            f" {where}{modified}   Ln {row + 1}, Col {col + 1}   {language}"
+            f" {flag} {where}   Ln {row + 1}, Col {col + 1}   {language}"
             "   [dim]F1 help[/]"
         )
 
@@ -101,6 +107,9 @@ class CandatApp(App[None]):
         Binding("ctrl+g", "keyboard_quit", "C-g", priority=True, show=False),
         # C-c is a prefix (mode commands), never Textual's quit.
         Binding("ctrl+c", "chord_prefix_cc", show=False, priority=True),
+        # Claim ctrl+q from Textual's default quit so C-x C-q can reach the
+        # chord screen (and a stray C-q never kills the app).
+        Binding("ctrl+q", "keyboard_quit", show=False, priority=True),
         Binding("alt+x", "command_palette", "M-x", show=False),
         Binding("f1", "help", "help", show=False),
     ]
@@ -132,6 +141,7 @@ class CandatApp(App[None]):
                 await self._open_path(path)
         else:
             await self._new_buffer()
+        self.set_interval(1.0, self._check_disk_changes)
 
     # -- buffer bookkeeping ------------------------------------------------
 
@@ -343,12 +353,84 @@ class CandatApp(App[None]):
             editor.mark_whole_buffer()
 
     def action_undo_buffer(self) -> None:
-        if (editor := self.active_editor) is not None:
+        if (editor := self.active_editor) is not None and editor.writable():
             editor.undo()
 
     def action_comment_dwim(self) -> None:
         if (editor := self.active_editor) is not None:
             editor.action_toggle_comment()
+
+    def action_toggle_read_only(self) -> None:
+        editor = self.active_editor
+        if editor is None:
+            return
+        editor.read_only = not editor.read_only
+        self._refresh_status()
+        state = "read-only" if editor.read_only else "writable"
+        self.notify(f"{editor.display_name} is now {state}", timeout=2)
+
+    def action_find_file_read_only(self) -> None:
+        editor = self.active_editor
+        base = editor.path.parent if editor and editor.path else self._root
+        initial = str(base) + "/"
+
+        async def opened(result: str | None) -> None:
+            if result:
+                await self._open_path(Path(result))
+                if (opened_editor := self.active_editor) is not None:
+                    opened_editor.read_only = True
+                    self._refresh_status()
+
+        self.push_screen(
+            PromptScreen("Find file read-only:", initial, complete_paths=True), opened
+        )
+
+    # -- disk watching ---------------------------------------------------------
+
+    def _check_disk_changes(self) -> None:
+        """Poll open files for external changes: clean buffers reload in
+        place; edited buffers get asked before their edits are discarded."""
+        if len(self.screen_stack) > 1:
+            return  # don't interrupt prompts, searches, or chords
+        for editor in self.editors():
+            path = editor.path
+            if path is None:
+                continue
+            try:
+                mtime = path.stat().st_mtime
+            except OSError:
+                continue  # deleted or unreadable; keep the buffer as-is
+            if editor.disk_mtime is not None and mtime == editor.disk_mtime:
+                continue
+            if not editor.modified:
+                self._reload(editor)
+            else:
+                # Remember this change so declining doesn't re-prompt every
+                # second; the next *further* disk change asks again.
+                editor.disk_mtime = mtime
+
+                def reload_if_confirmed(
+                    confirmed: bool | None, editor: EditorBuffer = editor
+                ) -> None:
+                    if confirmed:
+                        self._reload(editor)
+
+                self.push_screen(
+                    ConfirmScreen(
+                        f"{editor.display_name} changed on disk; "
+                        "reload and discard your edits?"
+                    ),
+                    reload_if_confirmed,
+                )
+                return  # one question at a time
+
+    def _reload(self, editor: EditorBuffer) -> None:
+        editor.reload_from_disk()
+        self._refresh_tab_label(editor)
+        self._refresh_status()
+        if editor.language == "markdown":
+            self._schedule_preview(editor)
+        self.notify(f"Reloaded {editor.display_name}", timeout=1.5)
 
     def action_isearch_forward(self) -> None:
         if (editor := self.active_editor) is not None:
@@ -504,7 +586,7 @@ class CandatApp(App[None]):
     def action_query_replace(self) -> None:
         """M-%: interactive find/replace from point."""
         editor = self.active_editor
-        if editor is None:
+        if editor is None or not editor.writable():
             return
 
         def got_find(find: str | None) -> None:

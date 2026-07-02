@@ -133,6 +133,7 @@ class EditorBuffer(TextArea):
         self._yank_start: tuple[int, int] | None = None
         self._yank_end: tuple[int, int] | None = None
         self._meta = False  # one-shot Meta prefix set by a bare ESC
+        self.disk_mtime: float | None = None  # mtime of path when last synced
         self._apply_language()
 
     @property
@@ -155,7 +156,28 @@ class EditorBuffer(TextArea):
         self.text = path.read_text()
         self.modified = False
         self._saved_text = self.text
+        try:
+            self.disk_mtime = path.stat().st_mtime
+        except OSError:
+            self.disk_mtime = None
         self._apply_language()
+
+    def reload_from_disk(self) -> None:
+        """Re-read the file, keeping cursor and scroll position (clamped)."""
+        if self.path is None or not self.path.exists():
+            return
+        sel = self.selection
+        scroll = self.scroll_y
+        self.load(self.path)
+        self.mark_active = False
+        last_row = self.document.line_count - 1
+
+        def clamp(location: tuple[int, int]) -> tuple[int, int]:
+            row = min(location[0], last_row)
+            return row, min(location[1], len(self.document.get_line(row)))
+
+        self.selection = Selection(clamp(sel.start), clamp(sel.end))
+        self.scroll_to(y=scroll, animate=False)
 
     def save(self, path: Path | None = None) -> Path:
         """Write the buffer to disk; returns the path written."""
@@ -167,7 +189,23 @@ class EditorBuffer(TextArea):
         self.path.write_text(self.text)
         self.modified = False
         self._saved_text = self.text
+        try:
+            self.disk_mtime = self.path.stat().st_mtime
+        except OSError:
+            self.disk_mtime = None
         return self.path
+
+    def writable(self) -> bool:
+        """False (with a warning) when the buffer is read-only; edit actions
+        must check this — TextArea.read_only only blocks direct typing."""
+        if self.read_only:
+            self.app.notify(
+                "Buffer is read-only (C-x C-q to toggle)",
+                severity="warning",
+                timeout=2,
+            )
+            return False
+        return True
 
     def _on_text_area_changed(self, event: TextArea.Changed) -> None:
         # Runs before the message bubbles to the app, so the app sees the
@@ -303,6 +341,8 @@ class EditorBuffer(TextArea):
         self._pending = "kill"
 
     def action_kill_line(self) -> None:
+        if not self.writable():
+            return
         row, col = self.point
         line = self.document.get_line(row)
         if col < len(line):
@@ -314,6 +354,8 @@ class EditorBuffer(TextArea):
         self._kill_range(self.point, end)
 
     def action_kill_region(self) -> None:
+        if not self.writable():
+            return
         sel = self.selection
         if sel.is_empty:
             self.app.notify("The region is empty", severity="warning", timeout=2)
@@ -344,14 +386,20 @@ class EditorBuffer(TextArea):
         return origin, target
 
     def action_kill_word(self) -> None:
+        if not self.writable():
+            return
         start, end = self._word_range(backward=False)
         self._kill_range(start, end)
 
     def action_kill_word_backward(self) -> None:
+        if not self.writable():
+            return
         start, end = self._word_range(backward=True)
         self._kill_range(start, end, backward=True)
 
     def action_yank(self) -> None:
+        if not self.writable():
+            return
         text = self.app.kill_ring.current
         if text is None:
             self.app.notify("Kill ring is empty", severity="warning", timeout=2)
@@ -365,6 +413,8 @@ class EditorBuffer(TextArea):
         self._pending = "yank"
 
     def action_yank_pop(self) -> None:
+        if not self.writable():
+            return
         if self._last_command != "yank" or self._yank_start is None:
             self.app.notify("Previous command was not a yank", severity="warning", timeout=2)
             return
@@ -387,6 +437,8 @@ class EditorBuffer(TextArea):
         return r0, r1
 
     def _move_lines(self, offset: int) -> None:
+        if not self.writable():
+            return
         first, last = self._selected_rows()
         document = self.document
         if offset < 0 and first == 0:
@@ -426,6 +478,8 @@ class EditorBuffer(TextArea):
     # -- comment toggle (M-;) ----------------------------------------------------
 
     def action_toggle_comment(self) -> None:
+        if not self.writable():
+            return
         prefix = COMMENT_PREFIXES.get(self.language or "")
         if prefix is None:
             self.app.notify(

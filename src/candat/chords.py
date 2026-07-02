@@ -17,6 +17,8 @@ CTRL_X_MAP: dict[str, tuple[str, str]] = {
     "ctrl+f": ("find_file", "find file"),
     "ctrl+s": ("save_buffer", "save buffer"),
     "ctrl+w": ("write_file", "write file (save as)"),
+    "ctrl+q": ("toggle_read_only", "toggle read-only"),
+    "ctrl+r": ("find_file_read_only", "find file read-only"),
     "ctrl+c": ("request_quit", "quit"),
     "ctrl+x": ("exchange_point_and_mark", "exchange point and mark"),
     "k": ("kill_buffer", "kill buffer"),

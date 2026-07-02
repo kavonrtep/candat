@@ -21,6 +21,8 @@ COMMANDS: list[tuple[str, str, str]] = [
     ("mark-whole-buffer", "Select the entire buffer (C-x h)", "mark_whole_buffer"),
     ("exchange-point-and-mark", "Swap cursor and mark (C-x C-x)", "exchange_point_and_mark"),
     ("undo", "Undo the last edit (C-x u, C-/)", "undo_buffer"),
+    ("read-only-mode", "Toggle read-only for this buffer (C-x C-q)", "toggle_read_only"),
+    ("find-file-read-only", "Open a file read-only (C-x C-r)", "find_file_read_only"),
     ("send-to-repl", "Send region or current line to the terminal (C-c C-c)", "send_to_repl"),
     ("query-replace", "Interactive find and replace (M-%)", "query_replace"),
     ("rgrep", "Search the project tree with a regex (C-x g)", "project_search"),

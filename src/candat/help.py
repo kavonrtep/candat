@@ -20,6 +20,8 @@ KEY_HELP = """\
 | `C-x C-f` | find file (creates it if missing; `Tab` completes paths) |
 | `C-x C-s` | save buffer |
 | `C-x C-w` | write buffer to another file |
+| `C-x C-q` | toggle read-only for this buffer |
+| `C-x C-r` | open a file read-only |
 | `C-x k` | kill (close) buffer |
 | `C-x b` | buffer list (next buffer preselected) |
 | `C-x C-c` | quit (asks about unsaved buffers) |
@@ -82,6 +84,10 @@ KEY_HELP = """\
 
 In the terminal panel all keys go to the shell (including `C-c`);
 only `C-x` is reserved, so `C-x t` and `C-x o` always work.
+
+Open files are watched: a buffer without local edits reloads when its
+file changes on disk; with local edits you are asked first. The status
+bar shows `--` clean, `**` modified, `%%` read-only.
 
 *Press `q`, `Esc`, or `C-g` to close this help.*
 """

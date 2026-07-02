@@ -40,6 +40,8 @@ Passing a directory sets the file-tree root; files are opened in buffers.
 | `C-x C-f` | find file (opens new file if it doesn't exist) |
 | `C-x C-s` | save buffer |
 | `C-x C-w` | write buffer to another file |
+| `C-x C-q` | toggle read-only (status bar shows `%%`) |
+| `C-x C-r` | open a file read-only |
 | `C-x k` | kill buffer |
 | `C-x b` | buffer list (Enter switches; next buffer preselected) |
 | `C-x o` | switch focus between tree and editor |
@@ -70,6 +72,9 @@ Passing a directory sets the file-tree root; files are opened in buffers.
 
 `ESC` acts as the Meta prefix, so `ESC w` == `M-w`, `ESC x` == `M-x`, etc.
 `Tab` completes paths in the find-file and write-file prompts.
+
+Open files are watched for external changes: clean buffers reload
+automatically; buffers with local edits ask before discarding them.
 
 The file tree opens files on selection. The default theme is `candat-light`
 (high-contrast dark-on-white). The markdown preview is linked: it follows
