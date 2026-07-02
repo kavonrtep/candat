@@ -9,7 +9,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Markdown
 
 KEY_HELP = """\
-# pike keys
+# candat keys
 
 `ESC` is the Meta prefix: `ESC w` == `M-w`, `ESC x` == `M-x`, and so on.
 

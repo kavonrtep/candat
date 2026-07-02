@@ -8,14 +8,14 @@ import pytest
 from textual import events
 from textual.widgets.text_area import Selection
 
-from pike.app import PikeApp
-from pike.preview import MarkdownPreview
+from candat.app import CandatApp
+from candat.preview import MarkdownPreview
 
 pytestmark = pytest.mark.asyncio
 
 
 async def app_with_text(text: str):
-    app = PikeApp()
+    app = CandatApp()
     pilot_cm = app.run_test()
     pilot = await pilot_cm.__aenter__()
     editor = app.active_editor
@@ -117,7 +117,7 @@ async def test_move_region_block_down_keeps_region():
 async def test_preview_scroll_follows_editor(tmp_path: Path):
     note = tmp_path / "long.md"
     note.write_text("\n\n".join(f"## Section {i}\n\ntext {i}" for i in range(60)))
-    app = PikeApp([note])
+    app = CandatApp([note])
     async with app.run_test(size=(100, 24)) as pilot:
         await pilot.pause()
         editor = app.active_editor

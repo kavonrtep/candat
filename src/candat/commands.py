@@ -1,4 +1,4 @@
-"""M-x: pike commands for the Textual command palette."""
+"""M-x: candat commands for the Textual command palette."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 from textual.command import DiscoveryHit, Hit, Hits, Provider
 
 if TYPE_CHECKING:
-    from .app import PikeApp
+    from .app import CandatApp
 
 # (emacs command name, help text, app action)
 COMMANDS: list[tuple[str, str, str]] = [
@@ -26,13 +26,13 @@ COMMANDS: list[tuple[str, str, str]] = [
     ("isearch-backward", "Incremental search backward (C-r)", "isearch_backward"),
     ("help", "Show all keybindings (F1, C-x ?)", "help"),
     ("shell", "Toggle the terminal panel (C-x t)", "toggle_terminal"),
-    ("save-buffers-kill-terminal", "Quit pike (C-x C-c)", "request_quit"),
+    ("save-buffers-kill-terminal", "Quit candat (C-x C-c)", "request_quit"),
 ]
 
 
-class PikeCommands(Provider):
+class CandatCommands(Provider):
     async def discover(self) -> Hits:
-        app: PikeApp = self.app  # type: ignore[assignment]
+        app: CandatApp = self.app  # type: ignore[assignment]
         for name, help_text, action in COMMANDS:
             yield DiscoveryHit(
                 name,
@@ -41,7 +41,7 @@ class PikeCommands(Provider):
             )
 
     async def search(self, query: str) -> Hits:
-        app: PikeApp = self.app  # type: ignore[assignment]
+        app: CandatApp = self.app  # type: ignore[assignment]
         matcher = self.matcher(query)
         for name, help_text, action in COMMANDS:
             score = matcher.match(name)

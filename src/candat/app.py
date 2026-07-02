@@ -1,4 +1,4 @@
-"""Pike: a terminal IDE with emacs keybindings, built on Textual."""
+"""Candat: a terminal IDE with emacs keybindings, built on Textual."""
 
 from __future__ import annotations
 
@@ -19,14 +19,14 @@ from textual.widgets import (
 )
 
 from .chords import CTRL_C_MAP, CTRL_X_MAP, ChordScreen
-from .commands import PikeCommands
+from .commands import CandatCommands
 from .dialogs import ConfirmScreen, PromptScreen
 from .editor import EditorBuffer
 from .help import HelpScreen
 from .killring import KillRing
 from .preview import PREVIEW_CLASSES, PREVIEW_MODES, MarkdownPreview
 from .terminal import TerminalPane
-from .theme import PIKE_LIGHT
+from .theme import CANDAT_LIGHT
 
 
 class StatusBar(Static):
@@ -34,7 +34,7 @@ class StatusBar(Static):
 
     def show(self, editor: EditorBuffer | None) -> None:
         if editor is None:
-            self.update(" pike")
+            self.update(" candat")
             return
         modified = "*" if editor.modified else ""
         row, col = editor.cursor_location
@@ -46,10 +46,10 @@ class StatusBar(Static):
         )
 
 
-class PikeApp(App[None]):
-    TITLE = "pike"
+class CandatApp(App[None]):
+    TITLE = "candat"
     COMMAND_PALETTE_BINDING = "ctrl+shift+p"
-    COMMANDS = App.COMMANDS | {PikeCommands}
+    COMMANDS = App.COMMANDS | {CandatCommands}
 
     CSS = """
     #workspace {
@@ -122,8 +122,8 @@ class PikeApp(App[None]):
         yield StatusBar()
 
     async def on_mount(self) -> None:
-        self.register_theme(PIKE_LIGHT)
-        self.theme = "pike-light"
+        self.register_theme(CANDAT_LIGHT)
+        self.theme = "candat-light"
         if self._files:
             for path in self._files:
                 await self._open_path(path)
@@ -475,4 +475,4 @@ class PikeApp(App[None]):
 
 def main() -> None:
     paths = [Path(arg) for arg in sys.argv[1:]]
-    PikeApp(paths).run()
+    CandatApp(paths).run()

@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from textual.widgets.text_area import Selection
 
-from pike.app import PikeApp
+from candat.app import CandatApp
 
 pytestmark = pytest.mark.asyncio
 
@@ -18,7 +18,7 @@ async def chord(pilot, *keys):
 
 
 async def app_with_text(text: str):
-    app = PikeApp()
+    app = CandatApp()
     pilot_cm = app.run_test()
     pilot = await pilot_cm.__aenter__()
     editor = app.active_editor
@@ -225,7 +225,7 @@ async def test_isearch_backward():
 
 
 async def test_command_palette_opens_on_alt_x():
-    app = PikeApp()
+    app = CandatApp()
     async with app.run_test() as pilot:
         await pilot.press("alt+x")
         await pilot.pause()

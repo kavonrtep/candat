@@ -5,8 +5,8 @@ import os
 
 import pytest
 
-from pike.app import PikeApp
-from pike.terminal import TerminalPane
+from candat.app import CandatApp
+from candat.terminal import TerminalPane
 
 pytestmark = pytest.mark.asyncio
 
@@ -40,7 +40,7 @@ def plain_shell(monkeypatch):
 
 
 async def test_toggle_spawns_shell_and_runs_command():
-    app = PikeApp()
+    app = CandatApp()
     async with app.run_test() as pilot:
         terminal = app.query_one(TerminalPane)
         assert not terminal.has_class("-open")
@@ -49,10 +49,10 @@ async def test_toggle_spawns_shell_and_runs_command():
         assert terminal.running
         assert app.focused is terminal
 
-        for ch in "echo pik''e-works":  # quotes so the echoed command != output
+        for ch in "echo cand''at-works":  # quotes so the echoed command != output
             await pilot.press(ch)
         await pilot.press("enter")
-        assert await wait_for(pilot, lambda: "pike-works" in terminal_text(terminal))
+        assert await wait_for(pilot, lambda: "candat-works" in terminal_text(terminal))
 
         # Toggle closed: hidden, focus returns to the editor.
         await chord(pilot, "ctrl+x", "t")
@@ -62,7 +62,7 @@ async def test_toggle_spawns_shell_and_runs_command():
 
 
 async def test_ctrl_c_reaches_the_shell():
-    app = PikeApp()
+    app = CandatApp()
     async with app.run_test() as pilot:
         await chord(pilot, "ctrl+x", "t")
         terminal = app.query_one(TerminalPane)
@@ -81,7 +81,7 @@ async def test_ctrl_c_reaches_the_shell():
 
 
 async def test_shell_exit_and_respawn():
-    app = PikeApp()
+    app = CandatApp()
     async with app.run_test() as pilot:
         await chord(pilot, "ctrl+x", "t")
         terminal = app.query_one(TerminalPane)
@@ -96,7 +96,7 @@ async def test_shell_exit_and_respawn():
 
 
 async def test_quit_kills_shell():
-    app = PikeApp()
+    app = CandatApp()
     async with app.run_test() as pilot:
         await chord(pilot, "ctrl+x", "t")
         terminal = app.query_one(TerminalPane)

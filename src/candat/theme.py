@@ -1,4 +1,4 @@
-"""The pike-light theme: near-white background, true-black text, high contrast.
+"""The candat-light theme: near-white background, true-black text, high contrast.
 
 Based on Konsole's BlackOnWhite scheme with GitHub-light accent colors,
 which keep WCAG-AA contrast on a white background.
@@ -6,8 +6,8 @@ which keep WCAG-AA contrast on a white background.
 
 from textual.theme import Theme
 
-PIKE_LIGHT = Theme(
-    name="pike-light",
+CANDAT_LIGHT = Theme(
+    name="candat-light",
     dark=False,
     primary="#0550ae",
     secondary="#116329",

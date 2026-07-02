@@ -1,11 +1,11 @@
-# pike
+# candat
 
 A terminal IDE with emacs keybindings, built on [Textual](https://textual.textualize.io/).
 
 ## Run
 
 ```sh
-uv run pike [FILE|DIR ...]
+uv run candat [FILE|DIR ...]
 ```
 
 Passing a directory sets the file-tree root; files are opened in buffers.
@@ -42,7 +42,7 @@ Passing a directory sets the file-tree root; files are opened in buffers.
 
 `ESC` acts as the Meta prefix, so `ESC w` == `M-w`, `ESC x` == `M-x`, etc.
 
-The file tree opens files on selection. The default theme is `pike-light`
+The file tree opens files on selection. The default theme is `candat-light`
 (high-contrast dark-on-white). The markdown preview is linked: it follows
 the editor's scroll position.
 

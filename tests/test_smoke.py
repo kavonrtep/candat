@@ -1,12 +1,12 @@
-"""End-to-end smoke tests driving PikeApp with Textual's test pilot."""
+"""End-to-end smoke tests driving CandatApp with Textual's test pilot."""
 
 from pathlib import Path
 
 import pytest
 from textual.widgets import DirectoryTree, Input, TabbedContent
 
-from pike.app import PikeApp, StatusBar
-from pike.editor import EditorBuffer
+from candat.app import CandatApp, StatusBar
+from candat.editor import EditorBuffer
 
 pytestmark = pytest.mark.asyncio
 
@@ -21,9 +21,9 @@ async def chord(pilot, *keys):
 
 
 async def test_boot_layout_and_theme():
-    app = PikeApp()
+    app = CandatApp()
     async with app.run_test() as pilot:
-        assert app.theme == "pike-light"
+        assert app.theme == "candat-light"
         app.query_one(DirectoryTree)
         app.query_one(TabbedContent)
         app.query_one(StatusBar)
@@ -36,7 +36,7 @@ async def test_boot_layout_and_theme():
 async def test_find_file_edit_and_save(tmp_path: Path):
     target = tmp_path / "hello.py"
     target.write_text("print('hi')\n")
-    app = PikeApp()
+    app = CandatApp()
     async with app.run_test() as pilot:
         # C-x C-f, type the path, enter.
         await chord(pilot, "ctrl+x", "ctrl+f")
@@ -65,7 +65,7 @@ async def test_find_file_edit_and_save(tmp_path: Path):
 
 
 async def test_save_untitled_prompts_for_path(tmp_path: Path):
-    app = PikeApp()
+    app = CandatApp()
     async with app.run_test() as pilot:
         await pilot.press("h", "i")
         await chord(pilot, "ctrl+x", "ctrl+s")
@@ -80,7 +80,7 @@ async def test_save_untitled_prompts_for_path(tmp_path: Path):
 
 
 async def test_undefined_chord_and_cancel():
-    app = PikeApp()
+    app = CandatApp()
     async with app.run_test() as pilot:
         # C-g cancels a pending chord.
         await chord(pilot, "ctrl+x", "ctrl+g")
@@ -91,7 +91,7 @@ async def test_undefined_chord_and_cancel():
 
 
 async def test_kill_buffer_and_quit_confirmation(tmp_path: Path):
-    app = PikeApp()
+    app = CandatApp()
     async with app.run_test() as pilot:
         await pilot.press("x")  # dirty the untitled buffer
         # C-x C-c should ask about unsaved changes; answer no.

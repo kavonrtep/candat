@@ -2,8 +2,8 @@
 
 import pytest
 
-from pike.app import PikeApp
-from pike.help import HelpScreen
+from candat.app import CandatApp
+from candat.help import HelpScreen
 
 pytestmark = pytest.mark.asyncio
 
@@ -16,7 +16,7 @@ async def chord(pilot, *keys):
 
 
 async def test_f1_opens_and_closes_help():
-    app = PikeApp()
+    app = CandatApp()
     async with app.run_test() as pilot:
         await pilot.press("f1")
         await pilot.pause()
@@ -27,7 +27,7 @@ async def test_f1_opens_and_closes_help():
 
 
 async def test_cx_question_mark_opens_help():
-    app = PikeApp()
+    app = CandatApp()
     async with app.run_test() as pilot:
         await chord(pilot, "ctrl+x", "question_mark")
         assert isinstance(app.screen, HelpScreen)

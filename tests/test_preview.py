@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 from textual.widgets import Markdown
 
-from pike.app import PikeApp
-from pike.preview import MarkdownPreview
+from candat.app import CandatApp
+from candat.preview import MarkdownPreview
 
 pytestmark = pytest.mark.asyncio
 
@@ -22,7 +22,7 @@ async def chord(pilot, *keys):
 async def test_markdown_opens_in_split_preview(tmp_path: Path):
     note = tmp_path / "note.md"
     note.write_text("# Title\n\nSome text.\n")
-    app = PikeApp([note])
+    app = CandatApp([note])
     async with app.run_test() as pilot:
         await pilot.pause()
         pane = app.tabs.active_pane
@@ -36,7 +36,7 @@ async def test_markdown_opens_in_split_preview(tmp_path: Path):
 async def test_non_markdown_has_no_preview(tmp_path: Path):
     code = tmp_path / "x.py"
     code.write_text("print(1)\n")
-    app = PikeApp([code])
+    app = CandatApp([code])
     async with app.run_test() as pilot:
         await pilot.pause()
         pane = app.tabs.active_pane
@@ -49,7 +49,7 @@ async def test_non_markdown_has_no_preview(tmp_path: Path):
 async def test_toggle_cycles_modes(tmp_path: Path):
     note = tmp_path / "note.md"
     note.write_text("hello\n")
-    app = PikeApp([note])
+    app = CandatApp([note])
     async with app.run_test() as pilot:
         await pilot.pause()
         pane = app.tabs.active_pane
@@ -67,7 +67,7 @@ async def test_toggle_cycles_modes(tmp_path: Path):
 async def test_preview_updates_after_debounce(tmp_path: Path):
     note = tmp_path / "note.md"
     note.write_text("start\n")
-    app = PikeApp([note])
+    app = CandatApp([note])
     async with app.run_test() as pilot:
         await pilot.pause()
         pane = app.tabs.active_pane
