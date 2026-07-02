@@ -24,6 +24,7 @@ COMMANDS: list[tuple[str, str, str]] = [
     ("markdown-toggle-preview", "Cycle markdown preview: split / preview-only / off (C-c C-v)", "toggle_preview"),
     ("isearch-forward", "Incremental search forward (C-s)", "isearch_forward"),
     ("isearch-backward", "Incremental search backward (C-r)", "isearch_backward"),
+    ("shell", "Toggle the terminal panel (C-x t)", "toggle_terminal"),
     ("save-buffers-kill-terminal", "Quit pike (C-x C-c)", "request_quit"),
 ]
 

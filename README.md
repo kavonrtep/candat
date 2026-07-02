@@ -34,6 +34,7 @@ Passing a directory sets the file-tree root; files are opened in buffers.
 | `C-y` / `M-y` | yank / yank-pop |
 | `M-d` / `M-backspace` | kill word forward / backward |
 | `C-s` / `C-r` | incremental search (smart case, wraps) |
+| `C-x t` | toggle terminal panel (keys pass through raw; only `C-x` is reserved) |
 | `C-c C-v` | cycle markdown preview: split / preview-only / off |
 | `M-x`, `Ctrl+Shift+P` | command palette |
 | `C-g` / `Esc` | cancel chord / prompt / search / mark |
@@ -52,5 +53,6 @@ uv run pytest
 1. ~~Skeleton: tree / tabs / status bar / C-x chords / open & save~~
 2. ~~Emacs editing: kill ring, C-s/C-r isearch, mark & region, M-x palette~~
 3. ~~Markdown mode: side-by-side live preview (debounced)~~
-4. Terminal panel (full PTY)
-5. Polish
+4. ~~Terminal panel (full PTY: forkpty + pyte)~~
+5. Polish: terminal scrollback, dirty-line rendering, path completion in
+   prompts, buffer list, scroll-synced preview, R/xml/html highlighting

@@ -24,6 +24,7 @@ from .dialogs import ConfirmScreen, PromptScreen
 from .editor import EditorBuffer
 from .killring import KillRing
 from .preview import PREVIEW_CLASSES, PREVIEW_MODES, MarkdownPreview
+from .terminal import TerminalPane
 from .theme import PIKE_LIGHT
 
 
@@ -112,6 +113,7 @@ class PikeApp(App[None]):
         with Horizontal(id="workspace"):
             yield DirectoryTree(self._root)
             yield TabbedContent()
+        yield TerminalPane()
         yield StatusBar()
 
     async def on_mount(self) -> None:
@@ -282,10 +284,15 @@ class PikeApp(App[None]):
     # -- actions (dispatched directly or via C-x chords) ---------------------
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
-        # While a modal (chord, prompt, confirm) is up, let it see these keys
-        # instead of the app's priority bindings.
         if action in ("chord_prefix", "chord_prefix_cc", "keyboard_quit"):
-            return self.screen is self.screen_stack[0]
+            # While a modal (chord, prompt, confirm) is up, let it see these
+            # keys instead of the app's priority bindings.
+            if self.screen is not self.screen_stack[0]:
+                return False
+            # A focused terminal gets C-c and C-g raw (interrupting the shell
+            # matters more); C-x stays reserved as the way out.
+            if action != "chord_prefix" and isinstance(self.focused, TerminalPane):
+                return False
         return True
 
     def action_chord_prefix(self) -> None:
@@ -399,12 +406,32 @@ class PikeApp(App[None]):
             editor.focus()
 
     def action_other_window(self) -> None:
+        """C-x o: cycle focus tree -> editor -> terminal (when open)."""
         editor = self.active_editor
         tree = self.query_one(DirectoryTree)
-        if editor is not None and editor.has_focus:
-            tree.focus()
-        elif editor is not None:
-            editor.focus()
+        terminal = self.query_one(TerminalPane)
+        ring: list = [tree]
+        if editor is not None:
+            ring.append(editor)
+        if terminal.has_class("-open"):
+            ring.append(terminal)
+        focused = self.focused
+        for index, widget in enumerate(ring):
+            if focused is widget or (focused is not None and widget in focused.ancestors_with_self):
+                ring[(index + 1) % len(ring)].focus()
+                return
+        ring[0].focus()
+
+    def action_toggle_terminal(self) -> None:
+        terminal = self.query_one(TerminalPane)
+        if terminal.has_class("-open"):
+            terminal.remove_class("-open")
+            if (editor := self.active_editor) is not None:
+                editor.focus()
+        else:
+            terminal.add_class("-open")
+            terminal.spawn()
+            terminal.focus()
 
     def action_request_quit(self) -> None:
         unsaved = [e.display_name for e in self.editors() if e.modified]
