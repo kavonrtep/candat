@@ -58,6 +58,10 @@ Passing a directory sets the file-tree root; files are opened in buffers.
 | `M-d` / `M-backspace` | kill word forward / backward |
 | `M-up` / `M-down` | move current line (or marked block) up / down |
 | `C-s` / `C-r` | incremental search (smart case, wraps) |
+| `M-%` | query-replace (y/n/!/q) |
+| `C-x g` | project-wide regex search (results list, Enter jumps) |
+| `M-;` | toggle line comment |
+| `C-c C-c` | send region or current line to the terminal REPL |
 | `C-x t` | toggle terminal panel (keys pass through raw; only `C-x` is reserved) |
 | `Shift+PgUp/PgDn` | terminal scrollback (typing snaps back) |
 | `C-c C-v` | cycle markdown preview: split / preview-only / off |

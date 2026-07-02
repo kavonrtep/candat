@@ -25,11 +25,13 @@ CTRL_X_MAP: dict[str, tuple[str, str]] = {
     "h": ("mark_whole_buffer", "mark whole buffer"),
     "u": ("undo_buffer", "undo"),
     "t": ("toggle_terminal", "toggle terminal"),
+    "g": ("project_search", "search project"),
     "question_mark": ("help", "help"),
 }
 
 # Chord table for the C-c prefix (mode-specific commands, as in emacs).
 CTRL_C_MAP: dict[str, tuple[str, str]] = {
+    "ctrl+c": ("send_to_repl", "send line/region to terminal"),
     "ctrl+v": ("toggle_preview", "toggle markdown preview"),
 }
 

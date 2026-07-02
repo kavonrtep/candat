@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import sys
 from pathlib import Path
 
@@ -25,6 +26,8 @@ from .editor import EditorBuffer
 from .help import HelpScreen
 from .killring import KillRing
 from .preview import PREVIEW_CLASSES, PREVIEW_MODES, MarkdownPreview
+from .projectsearch import SearchResultsScreen, search_project
+from .replace import QueryReplaceScreen
 from .terminal import TerminalPane
 from .theme import CANDAT_LIGHT
 
@@ -343,6 +346,10 @@ class CandatApp(App[None]):
         if (editor := self.active_editor) is not None:
             editor.undo()
 
+    def action_comment_dwim(self) -> None:
+        if (editor := self.active_editor) is not None:
+            editor.action_toggle_comment()
+
     def action_isearch_forward(self) -> None:
         if (editor := self.active_editor) is not None:
             editor.action_isearch_forward()
@@ -468,6 +475,78 @@ class CandatApp(App[None]):
 
     def action_help(self) -> None:
         self.push_screen(HelpScreen())
+
+    def action_send_to_repl(self) -> None:
+        """C-c C-c: send the region (or current line) to the terminal, opening
+        it if needed. Without a region the cursor advances one line, so
+        repeated C-c C-c steps through a script."""
+        editor = self.active_editor
+        if editor is None:
+            return
+        terminal = self.query_one(TerminalPane)
+        if not terminal.has_class("-open"):
+            terminal.add_class("-open")
+        if not terminal.running:
+            terminal.spawn()
+        if editor.mark_active and not editor.selection.is_empty:
+            text = editor.selected_text
+            editor.deactivate_mark()
+        else:
+            row = editor.point[0]
+            text = editor.document.get_line(row)
+            if row + 1 < editor.document.line_count:
+                editor.move_cursor((row + 1, 0))
+        if not text.endswith("\n"):
+            text += "\n"
+        terminal.send_text(text)
+        editor.focus()
+
+    def action_query_replace(self) -> None:
+        """M-%: interactive find/replace from point."""
+        editor = self.active_editor
+        if editor is None:
+            return
+
+        def got_find(find: str | None) -> None:
+            if not find:
+                return
+
+            def got_replacement(replacement: str | None) -> None:
+                if replacement is None:
+                    return
+                self.push_screen(QueryReplaceScreen(editor, find, replacement))
+
+            self.push_screen(
+                PromptScreen(f"Query replace {find} with:"), got_replacement
+            )
+
+        self.push_screen(PromptScreen("Query replace:"), got_find)
+
+    def action_project_search(self) -> None:
+        """C-x g: regex search across the project tree."""
+
+        async def got_pattern(pattern: str | None) -> None:
+            if not pattern:
+                return
+            results = await asyncio.to_thread(search_project, self._root, pattern)
+            if not results:
+                self.notify(f"No matches for {pattern!r}", timeout=2)
+                return
+
+            async def picked(hit: tuple[Path, int] | None) -> None:
+                if hit is None:
+                    return
+                path, line = hit
+                await self._open_path(path)
+                if (editor := self.active_editor) is not None:
+                    editor.move_cursor((line - 1, 0), center=True)
+                    editor.focus()
+
+            self.push_screen(
+                SearchResultsScreen(self._root, pattern, results), picked
+            )
+
+        self.push_screen(PromptScreen("Search project (regex):"), got_pattern)
 
     def action_toggle_terminal(self) -> None:
         terminal = self.query_one(TerminalPane)

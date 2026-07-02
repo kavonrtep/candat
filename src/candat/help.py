@@ -53,15 +53,18 @@ KEY_HELP = """\
 | `C-y` / `M-y` | yank / yank-pop |
 | `M-d` / `M-backspace` | kill word forward / backward |
 | `M-up` / `M-down` | move line or marked block up / down |
+| `M-;` | toggle line comment on line or region |
 | `C-x u`, `C-/`, `C-z` | undo |
 | `C-d` | delete char |
 
-## Search
+## Search & replace
 
 | Key | Action |
 | --- | --- |
 | `C-s` / `C-r` | incremental search forward / backward |
 | `C-s C-s` | repeat last search |
+| `M-%` | query-replace: `y` replace, `n` skip, `!` all, `q` stop |
+| `C-x g` | search project tree (regex; Enter jumps to match) |
 | `C-g` | cancel search, back to start |
 | `Enter` | accept search position |
 
@@ -69,6 +72,7 @@ KEY_HELP = """\
 
 | Key | Action |
 | --- | --- |
+| `C-c C-c` | send region or current line to the terminal REPL |
 | `C-x t` | toggle the terminal panel |
 | `Shift+PgUp/PgDn` | terminal scrollback (typing snaps back) |
 | `C-x o` | cycle focus: tree → editor → terminal |

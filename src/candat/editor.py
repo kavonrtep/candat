@@ -65,6 +65,23 @@ META_ACTIONS: dict[str, str] = {
     "up": "move_lines_up",
     "down": "move_lines_down",
     "x": "app.command_palette",  # M-x (also via ESC x)
+    "semicolon": "toggle_comment",  # M-;
+    "percent_sign": "app.query_replace",  # M-%
+}
+
+# Line-comment prefix per language (M-;). Languages without a line-comment
+# syntax are absent and M-; refuses politely.
+COMMENT_PREFIXES: dict[str, str] = {
+    "python": "#",
+    "r": "#",
+    "bash": "#",
+    "yaml": "#",
+    "toml": "#",
+    "javascript": "//",
+    "go": "//",
+    "rust": "//",
+    "java": "//",
+    "sql": "--",
 }
 
 
@@ -404,6 +421,57 @@ class EditorBuffer(TextArea):
     def action_move_lines_down(self) -> None:
         was_active = self.mark_active
         self._move_lines(1)
+        self.mark_active = was_active
+
+    # -- comment toggle (M-;) ----------------------------------------------------
+
+    def action_toggle_comment(self) -> None:
+        prefix = COMMENT_PREFIXES.get(self.language or "")
+        if prefix is None:
+            self.app.notify(
+                f"No line comment for {self.language or 'plain text'}",
+                severity="warning",
+                timeout=2,
+            )
+            return
+        first, last = self._selected_rows()
+        document = self.document
+        lines = [document.get_line(row) for row in range(first, last + 1)]
+        content = [line for line in lines if line.strip()]
+        if not content:
+            return
+        if all(line.lstrip().startswith(prefix) for line in content):
+            # Uncomment: strip the prefix (and one following space).
+            new_lines = []
+            for line in lines:
+                if line.strip():
+                    at = line.index(prefix)
+                    rest = line[at + len(prefix) :]
+                    new_lines.append(line[:at] + rest.removeprefix(" "))
+                else:
+                    new_lines.append(line)
+        else:
+            indent = min(len(line) - len(line.lstrip()) for line in content)
+            new_lines = [
+                line[:indent] + prefix + " " + line[indent:] if line.strip() else line
+                for line in lines
+            ]
+        was_active = self.mark_active
+        sel = self.selection
+        self.replace(
+            "\n".join(new_lines),
+            (first, 0),
+            (last, len(lines[-1])),
+            maintain_selection_offset=False,
+        )
+        # Restore the selection, clamping columns to the edited lines.
+        def clamp(location: tuple[int, int]) -> tuple[int, int]:
+            row, col = location
+            if first <= row <= last:
+                col = min(col, len(new_lines[row - first]))
+            return row, col
+
+        self.selection = Selection(clamp(sel.start), clamp(sel.end))
         self.mark_active = was_active
 
     # -- isearch ---------------------------------------------------------------

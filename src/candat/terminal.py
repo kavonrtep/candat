@@ -290,6 +290,11 @@ class TerminalPane(Widget):
             event.stop()
             os.write(self._fd, event.text.encode())
 
+    def send_text(self, text: str) -> None:
+        """Write text to the shell's stdin (used by send-to-REPL)."""
+        if self.running and self._fd is not None:
+            os.write(self._fd, text.encode())
+
     # -- rendering ---------------------------------------------------------------
 
     def _char_style(self, char) -> Style:
