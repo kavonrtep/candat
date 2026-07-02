@@ -59,6 +59,10 @@ async def test_send_line_to_repl_opens_terminal_and_advances(monkeypatch):
         assert terminal.running
         assert app.focused is editor  # focus stays in the editor
         assert editor.point == (1, 0)  # cursor advanced to the next line
+        # Regression: the pty must be forked at the laid-out size, never the
+        # hidden-widget 20x4 fallback where output scrolls away instantly.
+        assert terminal._screen.columns == terminal.content_size.width
+        assert terminal._screen.lines == terminal.content_size.height
         text_of = lambda: "\n".join(terminal._screen.display)
         assert await wait_for(pilot, lambda: "first" in text_of())
     finally:

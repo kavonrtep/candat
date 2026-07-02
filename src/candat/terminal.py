@@ -131,6 +131,10 @@ class TerminalPane(Widget):
         # shell's terminal setup (tcsetattr) can discard early input.
         self._seen_output = False
         self._pending_input: list[bytes] = []
+        # Spawn is deferred until the widget has a real size — forking while
+        # hidden would size the pty 20x4 and early output would wrap and
+        # scroll off that tiny screen before the resize catches up.
+        self._spawn_pending = False
 
     @property
     def running(self) -> bool:
@@ -146,14 +150,19 @@ class TerminalPane(Widget):
     def spawn(self) -> None:
         if self.running:
             return
-        cols = max(self.content_size.width, 20)
-        rows = max(self.content_size.height, 4)
+        if self.content_size.width < 2 or self.content_size.height < 2:
+            # Not laid out yet (just un-hidden): fork on the next resize.
+            self._spawn_pending = True
+            return
+        self._spawn_pending = False
+        cols = self.content_size.width
+        rows = self.content_size.height
         self._screen = pyte.HistoryScreen(cols, rows, history=2000)
         self._stream = pyte.ByteStream(self._screen)
         self._exited = False
         self._line_cache.clear()
         self._seen_output = False
-        self._pending_input.clear()
+        # _pending_input is kept: send_text may have queued input already.
         pid, fd = pty.fork()
         if pid == 0:  # child: become the shell
             shell = os.environ.get("SHELL", "/bin/bash")
@@ -213,6 +222,7 @@ class TerminalPane(Widget):
     def _on_exit(self) -> None:
         self._exited = True
         self._reap()
+        self._pending_input.clear()  # don't leak into a future session
         self.refresh()
 
     def _reap(self) -> None:
@@ -236,6 +246,7 @@ class TerminalPane(Widget):
                 os.kill(pid, signal.SIGHUP)
             except ProcessLookupError:
                 pid = None
+        self._spawn_pending = False
         self._reap()
         if pid is not None:
             # Reap for real: brief grace for SIGHUP, then SIGKILL.
@@ -259,6 +270,9 @@ class TerminalPane(Widget):
         self.kill()
 
     def on_resize(self, event: events.Resize) -> None:
+        if self._spawn_pending and not self.running:
+            self.spawn()
+            return
         if self._screen is not None and self.running:
             cols = max(self.content_size.width, 20)
             rows = max(self.content_size.height, 4)
@@ -305,15 +319,14 @@ class TerminalPane(Widget):
             os.write(self._fd, event.text.encode())
 
     def send_text(self, text: str) -> None:
-        """Write text to the shell's stdin (used by send-to-REPL). Text sent
-        before the shell's first output is queued and flushed then, so a
-        C-c C-c on a cold terminal doesn't race the shell's startup."""
-        if not self.running or self._fd is None:
-            return
-        if not self._seen_output:
-            self._pending_input.append(text.encode())
-        else:
+        """Write text to the shell's stdin (used by send-to-REPL). Until the
+        shell exists and has produced its first output, text is queued — a
+        starting shell's terminal setup can discard early input, and the
+        spawn itself may still be waiting for layout."""
+        if self.running and self._seen_output and self._fd is not None:
             os.write(self._fd, text.encode())
+        else:
+            self._pending_input.append(text.encode())
 
     # -- rendering ---------------------------------------------------------------
 
