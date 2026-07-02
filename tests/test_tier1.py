@@ -80,6 +80,28 @@ async def test_send_region_to_repl(monkeypatch):
         await cm.__aexit__(None, None, None)
 
 
+async def test_send_before_shell_ready_is_queued(tmp_path: Path, monkeypatch):
+    """Regression for the CI race: input sent before a starting shell's
+    terminal setup used to be discarded by its tcsetattr flush. A slow-to-
+    start shell makes the race deterministic; the text must be queued until
+    the shell's first output, then flushed."""
+    slow_shell = tmp_path / "slowsh"
+    slow_shell.write_text("#!/bin/sh\nsleep 0.7\nexec /bin/bash\n")
+    slow_shell.chmod(0o755)
+    monkeypatch.setenv("SHELL", str(slow_shell))
+    app, pilot, cm, editor = await app_with_text("echo del''ayed\n")
+    try:
+        await chord(pilot, "ctrl+c", "ctrl+c")
+        terminal = app.query_one(TerminalPane)
+        assert terminal.running
+        assert terminal._pending_input  # queued: shell has produced no output
+        text_of = lambda: "\n".join(terminal._screen.display)
+        assert await wait_for(pilot, lambda: "delayed" in text_of(), timeout=12)
+        assert not terminal._pending_input
+    finally:
+        await cm.__aexit__(None, None, None)
+
+
 # -- comment toggle ---------------------------------------------------------
 
 

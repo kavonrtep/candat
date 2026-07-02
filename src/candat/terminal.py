@@ -127,6 +127,10 @@ class TerminalPane(Widget):
         self._stream: pyte.ByteStream | None = None
         self._exited = False
         self._line_cache: dict[int, Text] = {}
+        # Input sent before the shell's first output is queued: a starting
+        # shell's terminal setup (tcsetattr) can discard early input.
+        self._seen_output = False
+        self._pending_input: list[bytes] = []
 
     @property
     def running(self) -> bool:
@@ -148,6 +152,8 @@ class TerminalPane(Widget):
         self._stream = pyte.ByteStream(self._screen)
         self._exited = False
         self._line_cache.clear()
+        self._seen_output = False
+        self._pending_input.clear()
         pid, fd = pty.fork()
         if pid == 0:  # child: become the shell
             shell = os.environ.get("SHELL", "/bin/bash")
@@ -188,6 +194,14 @@ class TerminalPane(Widget):
     def _feed(self, data: bytes) -> None:
         if self._stream is None or self._screen is None:
             return
+        if not self._seen_output:
+            # First output means the shell finished its terminal setup and
+            # is reading input; flush anything sent before that.
+            self._seen_output = True
+            if self._pending_input and self._fd is not None:
+                for chunk in self._pending_input:
+                    os.write(self._fd, chunk)
+                self._pending_input.clear()
         old_cursor_row = self._screen.cursor.y
         self._stream.feed(data)
         # Only re-render rows pyte marked dirty (plus both cursor rows).
@@ -291,8 +305,14 @@ class TerminalPane(Widget):
             os.write(self._fd, event.text.encode())
 
     def send_text(self, text: str) -> None:
-        """Write text to the shell's stdin (used by send-to-REPL)."""
-        if self.running and self._fd is not None:
+        """Write text to the shell's stdin (used by send-to-REPL). Text sent
+        before the shell's first output is queued and flushed then, so a
+        C-c C-c on a cold terminal doesn't race the shell's startup."""
+        if not self.running or self._fd is None:
+            return
+        if not self._seen_output:
+            self._pending_input.append(text.encode())
+        else:
             os.write(self._fd, text.encode())
 
     # -- rendering ---------------------------------------------------------------
