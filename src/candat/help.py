@@ -17,11 +17,11 @@ KEY_HELP = """\
 
 | Key | Action |
 | --- | --- |
-| `C-x C-f` | find file (creates it if missing) |
+| `C-x C-f` | find file (creates it if missing; `Tab` completes paths) |
 | `C-x C-s` | save buffer |
 | `C-x C-w` | write buffer to another file |
 | `C-x k` | kill (close) buffer |
-| `C-x b` | next buffer |
+| `C-x b` | buffer list (next buffer preselected) |
 | `C-x C-c` | quit (asks about unsaved buffers) |
 
 ## Movement
@@ -70,6 +70,7 @@ KEY_HELP = """\
 | Key | Action |
 | --- | --- |
 | `C-x t` | toggle the terminal panel |
+| `Shift+PgUp/PgDn` | terminal scrollback (typing snaps back) |
 | `C-x o` | cycle focus: tree → editor → terminal |
 | `C-c C-v` | markdown preview: split / preview-only / off |
 | `M-x`, `Ctrl+Shift+P` | command palette |

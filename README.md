@@ -18,7 +18,7 @@ Passing a directory sets the file-tree root; files are opened in buffers.
 | `C-x C-s` | save buffer |
 | `C-x C-w` | write buffer to another file |
 | `C-x k` | kill buffer |
-| `C-x b` | next buffer |
+| `C-x b` | buffer list (Enter switches; next buffer preselected) |
 | `C-x o` | switch focus between tree and editor |
 | `C-x C-c` | quit (confirms if unsaved buffers) |
 | `C-x C-x` | exchange point and mark |
@@ -36,11 +36,13 @@ Passing a directory sets the file-tree root; files are opened in buffers.
 | `M-up` / `M-down` | move current line (or marked block) up / down |
 | `C-s` / `C-r` | incremental search (smart case, wraps) |
 | `C-x t` | toggle terminal panel (keys pass through raw; only `C-x` is reserved) |
+| `Shift+PgUp/PgDn` | terminal scrollback (typing snaps back) |
 | `C-c C-v` | cycle markdown preview: split / preview-only / off |
 | `M-x`, `Ctrl+Shift+P` | command palette |
 | `C-g` / `Esc` | cancel chord / prompt / search / mark |
 
 `ESC` acts as the Meta prefix, so `ESC w` == `M-w`, `ESC x` == `M-x`, etc.
+`Tab` completes paths in the find-file and write-file prompts.
 
 The file tree opens files on selection. The default theme is `candat-light`
 (high-contrast dark-on-white). The markdown preview is linked: it follows
@@ -58,5 +60,8 @@ uv run pytest
 2. ~~Emacs editing: kill ring, C-s/C-r isearch, mark & region, M-x palette~~
 3. ~~Markdown mode: side-by-side live preview (debounced)~~
 4. ~~Terminal panel (full PTY: forkpty + pyte)~~
-5. Polish: terminal scrollback, dirty-line rendering, path completion in
-   prompts, buffer list, scroll-synced preview, R/xml/html highlighting
+5. ~~Polish: terminal scrollback, dirty-line rendering, path completion in
+   prompts, buffer list, scroll-synced preview, R/xml/html highlighting~~
+
+Syntax highlighting covers python, markdown, json, yaml, bash, html, xml,
+css, toml, js, sql, go, rust, java, and R (via tree-sitter-language-pack).

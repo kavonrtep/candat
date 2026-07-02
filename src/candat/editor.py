@@ -37,6 +37,8 @@ LANGUAGES: dict[str, str] = {
     ".go": "go",
     ".rs": "rust",
     ".java": "java",
+    ".r": "r",
+    ".rmd": "markdown",
 }
 
 
@@ -122,6 +124,12 @@ class EditorBuffer(TextArea):
 
     def _apply_language(self) -> None:
         language = language_for(self.path)
+        if language == "r" and "r" not in self.available_languages:
+            from .rlang import R_HIGHLIGHTS, r_language
+
+            grammar = r_language()
+            if grammar is not None:
+                self.register_language("r", grammar, R_HIGHLIGHTS)
         if language in self.available_languages:
             self.language = language
 

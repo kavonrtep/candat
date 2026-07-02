@@ -14,10 +14,10 @@ from textual.widgets import (
     Static,
     TabbedContent,
     TabPane,
-    Tabs,
     TextArea,
 )
 
+from .buffers import BufferListScreen
 from .chords import CTRL_C_MAP, CTRL_X_MAP, ChordScreen
 from .commands import CandatCommands
 from .dialogs import ConfirmScreen, PromptScreen
@@ -360,7 +360,9 @@ class CandatApp(App[None]):
             if result:
                 await self._open_path(Path(result))
 
-        self.push_screen(PromptScreen("Find file:", initial), opened)
+        self.push_screen(
+            PromptScreen("Find file:", initial, complete_paths=True), opened
+        )
 
     def action_save_buffer(self) -> None:
         editor = self.active_editor
@@ -382,7 +384,9 @@ class CandatApp(App[None]):
             if result:
                 self._save(editor, Path(result).expanduser().resolve())
 
-        self.push_screen(PromptScreen("Write file:", initial), written)
+        self.push_screen(
+            PromptScreen("Write file:", initial, complete_paths=True), written
+        )
 
     def _save(self, editor: EditorBuffer, path: Path | None) -> None:
         try:
@@ -420,11 +424,30 @@ class CandatApp(App[None]):
         self._refresh_status()
 
     def action_switch_buffer(self) -> None:
-        """Cycle to the next buffer (buffer list comes later)."""
-        self.tabs.query_one(Tabs).action_next_tab()
-        editor = self.active_editor
-        if editor is not None:
-            editor.focus()
+        """C-x b: pick a buffer from a list. The next buffer is preselected,
+        so Enter-Enter still cycles like before."""
+        panes = list(self.tabs.query(TabPane))
+        if not panes:
+            return
+        entries: list[tuple[str, str]] = []
+        active_index = 0
+        for index, pane in enumerate(panes):
+            editor = pane.query_one(EditorBuffer)
+            label = editor.display_name + ("*" if editor.modified else "")
+            if editor.path is not None:
+                label = f"{label}  [dim]{editor.path}[/]"
+            entries.append((pane.id or "", label))
+            if pane is self.tabs.active_pane:
+                active_index = index
+
+        def switched(pane_id: str | None) -> None:
+            if pane_id:
+                self.tabs.active = pane_id
+                if (editor := self.active_editor) is not None:
+                    editor.focus()
+
+        preselect = (active_index + 1) % len(entries)
+        self.push_screen(BufferListScreen(entries, preselect), switched)
 
     def action_other_window(self) -> None:
         """C-x o: cycle focus tree -> editor -> terminal (when open)."""

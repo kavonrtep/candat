@@ -123,13 +123,19 @@ class TerminalPane(Widget):
         super().__init__(**kwargs)
         self._pid: int | None = None
         self._fd: int | None = None
-        self._screen: pyte.Screen | None = None
+        self._screen: pyte.HistoryScreen | None = None
         self._stream: pyte.ByteStream | None = None
         self._exited = False
+        self._line_cache: dict[int, Text] = {}
 
     @property
     def running(self) -> bool:
         return self._pid is not None and not self._exited
+
+    @property
+    def scrolled_back(self) -> bool:
+        screen = self._screen
+        return screen is not None and screen.history.position < screen.history.size
 
     # -- process lifecycle -----------------------------------------------------
 
@@ -138,9 +144,10 @@ class TerminalPane(Widget):
             return
         cols = max(self.content_size.width, 20)
         rows = max(self.content_size.height, 4)
-        self._screen = pyte.Screen(cols, rows)
+        self._screen = pyte.HistoryScreen(cols, rows, history=2000)
         self._stream = pyte.ByteStream(self._screen)
         self._exited = False
+        self._line_cache.clear()
         pid, fd = pty.fork()
         if pid == 0:  # child: become the shell
             shell = os.environ.get("SHELL", "/bin/bash")
@@ -179,9 +186,15 @@ class TerminalPane(Widget):
         self.app.call_from_thread(self._on_exit)
 
     def _feed(self, data: bytes) -> None:
-        if self._stream is not None:
-            self._stream.feed(data)
-            self.refresh()
+        if self._stream is None or self._screen is None:
+            return
+        old_cursor_row = self._screen.cursor.y
+        self._stream.feed(data)
+        # Only re-render rows pyte marked dirty (plus both cursor rows).
+        for row in self._screen.dirty | {old_cursor_row, self._screen.cursor.y}:
+            self._line_cache.pop(row, None)
+        self._screen.dirty.clear()
+        self.refresh()
 
     def _on_exit(self) -> None:
         self._exited = True
@@ -237,17 +250,40 @@ class TerminalPane(Widget):
             rows = max(self.content_size.height, 4)
             self._screen.resize(rows, cols)
             self._set_winsize(rows, cols)
+            self._line_cache.clear()
 
     # -- input -----------------------------------------------------------------
 
     def on_key(self, event: events.Key) -> None:
-        if not self.running or self._fd is None:
+        if not self.running or self._fd is None or self._screen is None:
+            return
+        # Scrollback: Shift+PageUp/PageDown page through history.
+        if event.key in ("shift+pageup", "shift+pagedown"):
+            event.stop()
+            event.prevent_default()
+            if event.key == "shift+pageup":
+                self._screen.prev_page()
+            else:
+                self._screen.next_page()
+            self._update_scrollback_state()
             return
         data = _key_to_bytes(event)
         if data is not None:
             event.stop()
             event.prevent_default()
+            if self.scrolled_back:
+                # Typing snaps back to the live view, like most terminals.
+                while self.scrolled_back:
+                    self._screen.next_page()
+                self._update_scrollback_state()
             os.write(self._fd, data)
+
+    def _update_scrollback_state(self) -> None:
+        self._line_cache.clear()
+        self.border_title = (
+            "history — Shift+PgDn to return" if self.scrolled_back else None
+        )
+        self.refresh()
 
     def on_paste(self, event: events.Paste) -> None:
         if self.running and self._fd is not None:
@@ -273,23 +309,42 @@ class TerminalPane(Widget):
             reverse=char.reverse,
         )
 
+    def _render_row(self, row: int, cursor_col: int | None) -> Text:
+        screen = self._screen
+        assert screen is not None
+        text = Text(no_wrap=True, end="")
+        line = screen.buffer[row]
+        for col in range(screen.columns):
+            char = line[col]
+            style = self._char_style(char)
+            if col == cursor_col:
+                style += Style(reverse=True)
+            text.append(char.data or " ", style)
+        return text
+
     def render(self) -> Text:
         if self._screen is None:
             return Text("terminal not started")
-        text = Text(no_wrap=True, end="")
         screen = self._screen
         cursor = screen.cursor
-        show_cursor = self.has_focus and not cursor.hidden and self.running
+        show_cursor = (
+            self.has_focus
+            and not cursor.hidden
+            and self.running
+            and not self.scrolled_back
+        )
+        text = Text(no_wrap=True, end="")
         for row in range(screen.lines):
             if row:
                 text.append("\n")
-            line = screen.buffer[row]
-            for col in range(screen.columns):
-                char = line[col]
-                style = self._char_style(char)
-                if show_cursor and row == cursor.y and col == cursor.x:
-                    style += Style(reverse=True)
-                text.append(char.data or " ", style)
+            cursor_col = cursor.x if (show_cursor and row == cursor.y) else None
+            if cursor_col is None and row in self._line_cache:
+                line = self._line_cache[row]
+            else:
+                line = self._render_row(row, cursor_col)
+                if cursor_col is None:
+                    self._line_cache[row] = line
+            text.append_text(line)
         if self._exited:
             text.append("\n[process exited — C-x t to close, reopen to restart]")
         return text
