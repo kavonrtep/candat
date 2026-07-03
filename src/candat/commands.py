@@ -27,7 +27,7 @@ COMMANDS: list[tuple[str, str, str]] = [
     ("query-replace", "Interactive find and replace (M-%)", "query_replace"),
     ("rgrep", "Search the project tree with a regex (C-x g)", "project_search"),
     ("comment-dwim", "Toggle line comments on region or line (M-;)", "comment_dwim"),
-    ("markdown-toggle-preview", "Cycle markdown preview: split / preview-only / off (C-c C-v)", "toggle_preview"),
+    ("markdown-toggle-preview", "Markdown preview / CSV table view toggle (C-c C-v)", "toggle_preview"),
     ("isearch-forward", "Incremental search forward (C-s)", "isearch_forward"),
     ("isearch-backward", "Incremental search backward (C-r)", "isearch_backward"),
     ("help", "Show all keybindings (F1, C-x ?)", "help"),

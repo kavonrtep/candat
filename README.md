@@ -76,6 +76,13 @@ Passing a directory sets the file-tree root; files are opened in buffers.
 Open files are watched for external changes: clean buffers reload
 automatically; buffers with local edits ask before discarding them.
 
+`.csv` and `.tsv` files open in a table viewer (inspired by
+[csvlens](https://github.com/YS-L/csvlens)): a sticky header, row cursor,
+and original file line numbers in the gutter. Large files stream in as you
+scroll rather than loading whole. In the table: `/` (or `C-s`) searches,
+`n` repeats, `&` filters rows by regex, `g`/`G` jump to top/bottom. `C-c
+C-v` switches between the table and the raw text. The table is read-only.
+
 The file tree opens files on selection. The default theme is `candat-light`
 (high-contrast dark-on-white). The markdown preview is linked: it follows
 the editor's scroll position.

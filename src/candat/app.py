@@ -21,6 +21,7 @@ from textual.widgets import (
 from .buffers import BufferListScreen
 from .chords import CTRL_C_MAP, CTRL_X_MAP, ChordScreen
 from .commands import CandatCommands
+from .csvview import CSV_SUFFIXES, CsvViewer
 from .dialogs import ConfirmScreen, PromptScreen
 from .editor import EditorBuffer
 from .help import HelpScreen
@@ -94,6 +95,15 @@ class CandatApp(App[None]):
     TabPane.-preview-only EditorBuffer {
         display: none;
     }
+    CsvViewer {
+        display: none;
+    }
+    TabPane.-csv-table CsvViewer {
+        display: block;
+    }
+    TabPane.-csv-table EditorBuffer {
+        display: none;
+    }
     StatusBar {
         dock: bottom;
         height: 1;
@@ -159,17 +169,21 @@ class CandatApp(App[None]):
     def editors(self) -> list[EditorBuffer]:
         return list(self.query(EditorBuffer))
 
-    async def _new_buffer(self, path: Path | None = None) -> EditorBuffer:
+    async def _new_buffer(
+        self, path: Path | None = None, load_text: bool = True
+    ) -> EditorBuffer:
         self._buffer_count += 1
         pane_id = f"buffer-{self._buffer_count}"
         editor = EditorBuffer(path=None)
-        if path is not None and path.exists():
+        if path is not None and path.exists() and load_text:
             editor.load(path)
         else:
             editor.path = path
             editor._apply_language()
         pane = TabPane(
-            editor.display_name, Horizontal(editor, MarkdownPreview()), id=pane_id
+            editor.display_name,
+            Horizontal(editor, MarkdownPreview(), CsvViewer()),
+            id=pane_id,
         )
         await self.tabs.add_pane(pane)
         # Linked preview: follow the editor's scroll position.
@@ -187,32 +201,55 @@ class CandatApp(App[None]):
         if path.is_dir():
             self.notify(f"{path} is a directory", severity="warning")
             return
+        # CSV/TSV files open in the table viewer without loading the text.
+        is_csv = path.suffix.lower() in CSV_SUFFIXES and path.exists()
         # Already open? Just switch to it.
         for editor in self.editors():
             if editor.path == path:
                 pane = self._pane_of(editor)
                 if pane is not None and pane.id is not None:
                     self.tabs.active = pane.id
-                editor.focus()
+                self._focus_buffer(editor)
                 return
         # Reuse a pristine untitled buffer instead of stacking new tabs.
         current = self.active_editor
         if current and current.path is None and not current.modified and not current.text:
-            if path.exists():
+            if path.exists() and not is_csv:
                 current.load(path)
             else:
                 current.path = path
                 current._apply_language()
             self._refresh_tab_label(current)
-            current.focus()
             self._refresh_status()
             pane = self._pane_of(current)
-            if current.language == "markdown" and pane is not None:
-                await self._set_preview_mode(pane, "split")
+            if pane is not None:
+                if is_csv:
+                    self._enter_csv_mode(pane, path)
+                    return
+                if current.language == "markdown":
+                    await self._set_preview_mode(pane, "split")
+            current.focus()
             return
-        await self._new_buffer(path)
+        editor = await self._new_buffer(path, load_text=not is_csv)
+        if is_csv and (pane := self._pane_of(editor)) is not None:
+            self._enter_csv_mode(pane, path)
         if not path.exists():
             self.notify("(new file)", timeout=2)
+
+    def _focus_buffer(self, editor: EditorBuffer) -> None:
+        """Focus the visible widget of a buffer: table in CSV mode, else editor."""
+        pane = self._pane_of(editor)
+        if pane is not None and pane.has_class("-csv-table"):
+            pane.query_one(CsvViewer).table.focus()
+        else:
+            editor.focus()
+
+    def _enter_csv_mode(self, pane: TabPane, path: Path) -> None:
+        pane.add_class("-csv-table")
+        viewer = pane.query_one(CsvViewer)
+        viewer.open_file(path)
+        viewer.table.focus()
+        self._refresh_status()
 
     def _pane_of(self, editor: EditorBuffer) -> TabPane | None:
         for ancestor in editor.ancestors:
@@ -278,10 +315,52 @@ class CandatApp(App[None]):
             0.3, lambda: preview.render_text(editor.text)
         )
 
+    def _toggle_csv_view(self, pane: TabPane, editor: EditorBuffer) -> None:
+        """C-c C-v on a CSV buffer: switch between table view and text."""
+        assert editor.path is not None
+        if pane.has_class("-csv-table"):
+            def to_text() -> None:
+                if editor.disk_mtime is None and editor.path.exists():
+                    editor.load(editor.path)
+                    self._refresh_tab_label(editor)
+                pane.remove_class("-csv-table")
+                editor.focus()
+                self._refresh_status()
+
+            size = editor.path.stat().st_size if editor.path.exists() else 0
+            if editor.disk_mtime is None and size > 5_000_000:
+                def maybe(confirmed: bool | None) -> None:
+                    if confirmed:
+                        to_text()
+
+                self.push_screen(
+                    ConfirmScreen(
+                        f"{editor.display_name} is {size / 1_000_000:.0f} MB; "
+                        "load as text?"
+                    ),
+                    maybe,
+                )
+            else:
+                to_text()
+        else:
+            viewer = pane.query_one(CsvViewer)
+            try:
+                mtime = editor.path.stat().st_mtime
+            except OSError:
+                mtime = None
+            if viewer._path != editor.path or viewer.mtime != mtime:
+                viewer.open_file(editor.path)
+            pane.add_class("-csv-table")
+            viewer.table.focus()
+            self._refresh_status()
+
     def action_toggle_preview(self) -> None:
         editor = self.active_editor
         pane = self._pane_of(editor) if editor else None
         if editor is None or pane is None:
+            return
+        if editor.path is not None and editor.path.suffix.lower() in CSV_SUFFIXES:
+            self._toggle_csv_view(pane, editor)
             return
         if editor.language != "markdown":
             self.notify("Not a markdown buffer", severity="warning", timeout=2)
@@ -400,7 +479,18 @@ class CandatApp(App[None]):
                 mtime = path.stat().st_mtime
             except OSError:
                 continue  # deleted or unreadable; keep the buffer as-is
-            if editor.disk_mtime is not None and mtime == editor.disk_mtime:
+            pane = self._pane_of(editor)
+            if pane is not None and pane.has_class("-csv-table"):
+                # Table view watches the file itself; the text was never
+                # loaded, so the editor path below does not apply.
+                viewer = pane.query_one(CsvViewer)
+                if viewer.mtime is not None and mtime != viewer.mtime:
+                    viewer.reload()
+                    self.notify(f"Reloaded {editor.display_name}", timeout=1.5)
+                continue
+            if editor.disk_mtime is None:
+                continue  # text never loaded (e.g. CSV toggled but unloaded)
+            if mtime == editor.disk_mtime:
                 continue
             if not editor.modified:
                 self._reload(editor)
@@ -456,6 +546,14 @@ class CandatApp(App[None]):
     def action_save_buffer(self) -> None:
         editor = self.active_editor
         if editor is None:
+            return
+        pane = self._pane_of(editor)
+        if pane is not None and pane.has_class("-csv-table"):
+            self.notify(
+                "Table view is read-only — C-c C-v to edit as text",
+                severity="warning",
+                timeout=2,
+            )
             return
         if editor.path is None:
             self.action_write_file()
@@ -533,7 +631,7 @@ class CandatApp(App[None]):
             if pane_id:
                 self.tabs.active = pane_id
                 if (editor := self.active_editor) is not None:
-                    editor.focus()
+                    self._focus_buffer(editor)
 
         preselect = (active_index + 1) % len(entries)
         self.push_screen(BufferListScreen(entries, preselect), switched)
@@ -545,7 +643,11 @@ class CandatApp(App[None]):
         terminal = self.query_one(TerminalPane)
         ring: list = [tree]
         if editor is not None:
-            ring.append(editor)
+            pane = self._pane_of(editor)
+            if pane is not None and pane.has_class("-csv-table"):
+                ring.append(pane.query_one(CsvViewer).table)
+            else:
+                ring.append(editor)
         if terminal.has_class("-open"):
             ring.append(terminal)
         focused = self.focused

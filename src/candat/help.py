@@ -70,6 +70,18 @@ KEY_HELP = """\
 | `C-g` | cancel search, back to start |
 | `Enter` | accept search position |
 
+## CSV / TSV table (`.csv`, `.tsv` files)
+
+| Key | Action |
+| --- | --- |
+| `/`, `C-s` | search rows (regex) |
+| `n` | next match |
+| `&` | filter rows by regex (empty clears) |
+| `g` / `G` | first row / load all and go to last |
+| `C-c C-v` | switch between table and raw text |
+
+The table is read-only; big files stream in as you scroll.
+
 ## Panels & tools
 
 | Key | Action |
