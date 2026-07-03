@@ -7,7 +7,6 @@ import pytest
 from textual.widgets import Markdown
 
 from candat.app import CandatApp
-from candat.preview import MarkdownPreview
 from helpers import chord
 
 pytestmark = pytest.mark.asyncio
@@ -20,8 +19,8 @@ async def test_markdown_opens_in_split_preview(tmp_path: Path):
     async with app.run_test() as pilot:
         await pilot.pause()
         pane = app.tabs.active_pane
-        assert app._preview_mode(pane) == "split"
-        preview = pane.query_one(MarkdownPreview)
+        assert pane.preview_mode == "split"
+        preview = pane.preview
         assert preview.styles.display != "none"
         # Rendered document contains the heading text.
         assert pane.query_one(Markdown).source.startswith("# Title")
@@ -34,10 +33,10 @@ async def test_non_markdown_has_no_preview(tmp_path: Path):
     async with app.run_test() as pilot:
         await pilot.pause()
         pane = app.tabs.active_pane
-        assert app._preview_mode(pane) == "off"
+        assert pane.preview_mode == "off"
         # C-c C-v refuses politely.
         await chord(pilot, "ctrl+c", "ctrl+v")
-        assert app._preview_mode(pane) == "off"
+        assert pane.preview_mode == "off"
 
 
 async def test_toggle_cycles_modes(tmp_path: Path):
@@ -47,15 +46,15 @@ async def test_toggle_cycles_modes(tmp_path: Path):
     async with app.run_test() as pilot:
         await pilot.pause()
         pane = app.tabs.active_pane
-        assert app._preview_mode(pane) == "split"
+        assert pane.preview_mode == "split"
         await chord(pilot, "ctrl+c", "ctrl+v")
-        assert app._preview_mode(pane) == "only"
-        assert app.focused is pane.query_one(MarkdownPreview)
+        assert pane.preview_mode == "only"
+        assert app.focused is pane.preview
         await chord(pilot, "ctrl+c", "ctrl+v")
-        assert app._preview_mode(pane) == "off"
+        assert pane.preview_mode == "off"
         assert app.focused is app.active_editor
         await chord(pilot, "ctrl+c", "ctrl+v")
-        assert app._preview_mode(pane) == "split"
+        assert pane.preview_mode == "split"
 
 
 async def test_preview_updates_after_debounce(tmp_path: Path):

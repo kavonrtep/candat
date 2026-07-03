@@ -16,7 +16,7 @@ async def open_viewer(app, pilot) -> CsvViewer:
     await pilot.pause()
     pane = app.tabs.active_pane
     assert pane.has_class("-csv-table")
-    return pane.query_one(CsvViewer)
+    return pane.csv
 
 
 async def test_csv_opens_in_table_mode_without_loading_text(sample_csv):

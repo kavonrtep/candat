@@ -8,7 +8,6 @@ from textual import events
 from textual.widgets.text_area import Selection
 
 from candat.app import CandatApp
-from candat.preview import MarkdownPreview
 from helpers import editor_with_text
 
 pytestmark = pytest.mark.asyncio
@@ -96,7 +95,7 @@ async def test_preview_scroll_follows_editor(tmp_path: Path):
         await pilot.pause()
         editor = app.active_editor
         pane = app.tabs.active_pane
-        preview = pane.query_one(MarkdownPreview)
+        preview = pane.preview
         assert preview.scroll_y == 0
         editor.scroll_to(y=editor.max_scroll_y, animate=False)
         await pilot.pause()

@@ -10,23 +10,18 @@ from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal
-from textual.widgets import (
-    DirectoryTree,
-    Static,
-    TabbedContent,
-    TabPane,
-    TextArea,
-)
+from textual.widgets import DirectoryTree, Static, TabbedContent, TextArea
 
 from .buffers import BufferListScreen
 from .chords import CTRL_C_MAP, CTRL_X_MAP, ChordScreen
 from .commands import CandatCommands
-from .csvview import CSV_SUFFIXES, CsvViewer
+from .csvview import CSV_SUFFIXES
 from .dialogs import ConfirmScreen, PromptScreen
 from .editor import EditorBuffer
 from .help import HelpScreen
 from .killring import KillRing
-from .preview import PREVIEW_CLASSES, PREVIEW_MODES, MarkdownPreview
+from .pane import BufferPane, pane_of
+from .preview import PREVIEW_MODES
 from .projectsearch import SearchResultsScreen, search_project
 from .replace import QueryReplaceScreen
 from .terminal import TerminalPane
@@ -160,14 +155,19 @@ class CandatApp(App[None]):
         return self.query_one(TabbedContent)
 
     @property
+    def active_pane(self) -> BufferPane | None:
+        return self.tabs.active_pane  # every pane we add is a BufferPane
+
+    @property
     def active_editor(self) -> EditorBuffer | None:
-        pane = self.tabs.active_pane
-        if pane is None:
-            return None
-        return pane.query_one(EditorBuffer)
+        pane = self.active_pane
+        return pane.editor if pane is not None else None
+
+    def panes(self) -> list[BufferPane]:
+        return list(self.tabs.query(BufferPane))
 
     def editors(self) -> list[EditorBuffer]:
-        return list(self.query(EditorBuffer))
+        return [pane.editor for pane in self.panes()]
 
     async def _new_buffer(
         self, path: Path | None = None, load_text: bool = True
@@ -180,20 +180,14 @@ class CandatApp(App[None]):
         else:
             editor.path = path
             editor._apply_language()
-        pane = TabPane(
-            editor.display_name,
-            Horizontal(editor, MarkdownPreview(), CsvViewer()),
-            id=pane_id,
-        )
+        pane = BufferPane(editor, pane_id)
         await self.tabs.add_pane(pane)
         # Linked preview: follow the editor's scroll position.
-        self.watch(
-            editor, "scroll_y", lambda: self._sync_preview_scroll(editor), init=False
-        )
+        self.watch(editor, "scroll_y", pane.sync_preview_scroll, init=False)
         self.tabs.active = pane_id
         editor.focus()
         if editor.language == "markdown":
-            await self._set_preview_mode(pane, "split")
+            await pane.set_preview_mode("split")
         return editor
 
     async def _open_path(self, path: Path) -> None:
@@ -204,126 +198,77 @@ class CandatApp(App[None]):
         # CSV/TSV files open in the table viewer without loading the text.
         is_csv = path.suffix.lower() in CSV_SUFFIXES and path.exists()
         # Already open? Just switch to it.
-        for editor in self.editors():
-            if editor.path == path:
-                pane = self._pane_of(editor)
-                if pane is not None and pane.id is not None:
+        for pane in self.panes():
+            if pane.editor.path == path:
+                if pane.id is not None:
                     self.tabs.active = pane.id
-                self._focus_buffer(editor)
+                pane.focus_visible()
                 return
         # Reuse a pristine untitled buffer instead of stacking new tabs.
-        current = self.active_editor
-        if current and current.path is None and not current.modified and not current.text:
+        current = self.active_pane
+        if (
+            current is not None
+            and current.editor.path is None
+            and not current.editor.modified
+            and not current.editor.text
+        ):
+            editor = current.editor
             if path.exists() and not is_csv:
-                current.load(path)
+                editor.load(path)
             else:
-                current.path = path
-                current._apply_language()
-            self._refresh_tab_label(current)
+                editor.path = path
+                editor._apply_language()
+            self._refresh_tab_label(editor)
             self._refresh_status()
-            pane = self._pane_of(current)
-            if pane is not None:
-                if is_csv:
-                    self._enter_csv_mode(pane, path)
-                    return
-                if current.language == "markdown":
-                    await self._set_preview_mode(pane, "split")
-            current.focus()
+            if is_csv:
+                current.enter_csv_mode(path)
+                self._refresh_status()
+                return
+            if editor.language == "markdown":
+                await current.set_preview_mode("split")
+            editor.focus()
             return
         editor = await self._new_buffer(path, load_text=not is_csv)
-        if is_csv and (pane := self._pane_of(editor)) is not None:
-            self._enter_csv_mode(pane, path)
+        if is_csv and (pane := pane_of(editor)) is not None:
+            pane.enter_csv_mode(path)
+            self._refresh_status()
         if not path.exists():
             self.notify("(new file)", timeout=2)
 
-    def _focus_buffer(self, editor: EditorBuffer) -> None:
-        """Focus the visible widget of a buffer: table in CSV mode, else editor."""
-        pane = self._pane_of(editor)
-        if pane is not None and pane.has_class("-csv-table"):
-            pane.query_one(CsvViewer).table.focus()
-        else:
-            editor.focus()
-
-    def _enter_csv_mode(self, pane: TabPane, path: Path) -> None:
-        pane.add_class("-csv-table")
-        viewer = pane.query_one(CsvViewer)
-        viewer.open_file(path)
-        viewer.table.focus()
-        self._refresh_status()
-
-    def _pane_of(self, editor: EditorBuffer) -> TabPane | None:
-        for ancestor in editor.ancestors:
-            if isinstance(ancestor, TabPane):
-                return ancestor
-        return None
-
     def _refresh_tab_label(self, editor: EditorBuffer) -> None:
-        pane = self._pane_of(editor)
+        pane = pane_of(editor)
         if pane is None or pane.id is None:
             return
         label = editor.display_name + ("*" if editor.modified else "")
         self.tabs.get_tab(pane.id).label = label
 
     def _refresh_status(self) -> None:
-        self.query_one(StatusBar).show(self.active_editor)
         editor = self.active_editor
+        self.query_one(StatusBar).show(editor)
         self.sub_title = str(editor.path) if editor and editor.path else ""
-
-    # -- markdown preview ----------------------------------------------------
-
-    def _preview_mode(self, pane: TabPane) -> str:
-        if pane.has_class("-preview-only"):
-            return "only"
-        if pane.has_class("-preview-split"):
-            return "split"
-        return "off"
-
-    async def _set_preview_mode(self, pane: TabPane, mode: str) -> None:
-        pane.remove_class(*PREVIEW_CLASSES.values())
-        if mode in PREVIEW_CLASSES:
-            pane.add_class(PREVIEW_CLASSES[mode])
-        editor = pane.query_one(EditorBuffer)
-        preview = pane.query_one(MarkdownPreview)
-        if mode != "off":
-            await preview.render_text(editor.text)
-        if mode == "only":
-            preview.focus()
-        else:
-            editor.focus()
-
-    def _sync_preview_scroll(self, editor: EditorBuffer) -> None:
-        """Keep the preview scrolled to the same relative position as the
-        editor (linked view)."""
-        pane = self._pane_of(editor)
-        if pane is None or self._preview_mode(pane) != "split":
-            return
-        if editor.max_scroll_y <= 0:
-            return
-        preview = pane.query_one(MarkdownPreview)
-        fraction = editor.scroll_y / editor.max_scroll_y
-        preview.scroll_to(y=fraction * preview.max_scroll_y, animate=False)
 
     def _schedule_preview(self, editor: EditorBuffer) -> None:
         """Debounced live preview refresh while editing markdown."""
-        pane = self._pane_of(editor)
-        if pane is None or self._preview_mode(pane) == "off":
+        pane = pane_of(editor)
+        if pane is None or pane.preview_mode == "off":
             return
         if timer := getattr(editor, "_preview_timer", None):
             timer.stop()
-        preview = pane.query_one(MarkdownPreview)
+        preview = pane.preview
         editor._preview_timer = self.set_timer(
             0.3, lambda: preview.render_text(editor.text)
         )
 
-    def _toggle_csv_view(self, pane: TabPane, editor: EditorBuffer) -> None:
+    def _toggle_csv_view(self, pane: BufferPane) -> None:
         """C-c C-v on a CSV buffer: switch between table view and text."""
+        editor = pane.editor
         assert editor.path is not None
-        if pane.has_class("-csv-table"):
+        if pane.is_csv:
             def to_text() -> None:
                 if editor.disk_mtime is None and editor.path.exists():
                     editor.load(editor.path)
                     self._refresh_tab_label(editor)
-                pane.remove_class("-csv-table")
+                pane.leave_csv_mode()
                 editor.focus()
                 self._refresh_status()
 
@@ -343,33 +288,31 @@ class CandatApp(App[None]):
             else:
                 to_text()
         else:
-            viewer = pane.query_one(CsvViewer)
             try:
                 mtime = editor.path.stat().st_mtime
             except OSError:
                 mtime = None
-            if viewer._path != editor.path or viewer.mtime != mtime:
-                viewer.open_file(editor.path)
-            pane.add_class("-csv-table")
-            viewer.table.focus()
+            if pane.csv._path != editor.path or pane.csv.mtime != mtime:
+                pane.enter_csv_mode(editor.path)
+            else:
+                pane.show_table()
             self._refresh_status()
 
     def action_toggle_preview(self) -> None:
-        editor = self.active_editor
-        pane = self._pane_of(editor) if editor else None
-        if editor is None or pane is None:
+        pane = self.active_pane
+        if pane is None:
             return
+        editor = pane.editor
         if editor.path is not None and editor.path.suffix.lower() in CSV_SUFFIXES:
-            self._toggle_csv_view(pane, editor)
+            self._toggle_csv_view(pane)
             return
         if editor.language != "markdown":
             self.notify("Not a markdown buffer", severity="warning", timeout=2)
             return
-        current = self._preview_mode(pane)
         next_mode = PREVIEW_MODES[
-            (PREVIEW_MODES.index(current) + 1) % len(PREVIEW_MODES)
+            (PREVIEW_MODES.index(pane.preview_mode) + 1) % len(PREVIEW_MODES)
         ]
-        self.call_later(self._set_preview_mode, pane, next_mode)
+        self.call_later(pane.set_preview_mode, next_mode)
 
     # -- events --------------------------------------------------------------
 
@@ -479,11 +422,11 @@ class CandatApp(App[None]):
                 mtime = path.stat().st_mtime
             except OSError:
                 continue  # deleted or unreadable; keep the buffer as-is
-            pane = self._pane_of(editor)
-            if pane is not None and pane.has_class("-csv-table"):
+            pane = pane_of(editor)
+            if pane is not None and pane.is_csv:
                 # Table view watches the file itself; the text was never
                 # loaded, so the editor path below does not apply.
-                viewer = pane.query_one(CsvViewer)
+                viewer = pane.csv
                 if viewer.mtime is not None and mtime != viewer.mtime:
                     viewer.reload()
                     self.notify(f"Reloaded {editor.display_name}", timeout=1.5)
@@ -544,17 +487,17 @@ class CandatApp(App[None]):
         )
 
     def action_save_buffer(self) -> None:
-        editor = self.active_editor
-        if editor is None:
+        pane = self.active_pane
+        if pane is None:
             return
-        pane = self._pane_of(editor)
-        if pane is not None and pane.has_class("-csv-table"):
+        if pane.is_csv:
             self.notify(
                 "Table view is read-only — C-c C-v to edit as text",
                 severity="warning",
                 timeout=2,
             )
             return
+        editor = pane.editor
         if editor.path is None:
             self.action_write_file()
             return
@@ -603,7 +546,7 @@ class CandatApp(App[None]):
             self.call_later(self._kill, editor)
 
     async def _kill(self, editor: EditorBuffer) -> None:
-        pane = self._pane_of(editor)
+        pane = pane_of(editor)
         if pane is not None and pane.id is not None:
             await self.tabs.remove_pane(pane.id)
         if not self.editors():
@@ -613,41 +556,37 @@ class CandatApp(App[None]):
     def action_switch_buffer(self) -> None:
         """C-x b: pick a buffer from a list. The next buffer is preselected,
         so Enter-Enter still cycles like before."""
-        panes = list(self.tabs.query(TabPane))
+        panes = self.panes()
         if not panes:
             return
         entries: list[tuple[str, str]] = []
         active_index = 0
         for index, pane in enumerate(panes):
-            editor = pane.query_one(EditorBuffer)
+            editor = pane.editor
             label = editor.display_name + ("*" if editor.modified else "")
             if editor.path is not None:
                 label = f"{label}  [dim]{editor.path}[/]"
             entries.append((pane.id or "", label))
-            if pane is self.tabs.active_pane:
+            if pane is self.active_pane:
                 active_index = index
 
         def switched(pane_id: str | None) -> None:
             if pane_id:
                 self.tabs.active = pane_id
-                if (editor := self.active_editor) is not None:
-                    self._focus_buffer(editor)
+                if (pane := self.active_pane) is not None:
+                    pane.focus_visible()
 
         preselect = (active_index + 1) % len(entries)
         self.push_screen(BufferListScreen(entries, preselect), switched)
 
     def action_other_window(self) -> None:
         """C-x o: cycle focus tree -> editor -> terminal (when open)."""
-        editor = self.active_editor
+        pane = self.active_pane
         tree = self.query_one(DirectoryTree)
         terminal = self.query_one(TerminalPane)
         ring: list = [tree]
-        if editor is not None:
-            pane = self._pane_of(editor)
-            if pane is not None and pane.has_class("-csv-table"):
-                ring.append(pane.query_one(CsvViewer).table)
-            else:
-                ring.append(editor)
+        if pane is not None:
+            ring.append(pane.visible_widget)
         if terminal.has_class("-open"):
             ring.append(terminal)
         focused = self.focused
