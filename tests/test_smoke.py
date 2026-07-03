@@ -6,18 +6,9 @@ import pytest
 from textual.widgets import DirectoryTree, Input, TabbedContent
 
 from candat.app import CandatApp, StatusBar
-from candat.editor import EditorBuffer
+from helpers import chord
 
 pytestmark = pytest.mark.asyncio
-
-
-async def chord(pilot, *keys):
-    """Press a key sequence one key at a time (letting each screen mount),
-    then flush the deferred chord dispatch."""
-    for key in keys:
-        await pilot.press(key)
-        await pilot.pause()
-    await pilot.pause()
 
 
 async def test_boot_layout_and_theme():

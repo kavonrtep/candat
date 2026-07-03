@@ -5,20 +5,14 @@ import asyncio
 from pathlib import Path
 
 import pytest
-from textual.widgets import Input, OptionList
+from textual.widgets import Input
 
 from candat.app import CandatApp
 from candat.buffers import BufferListScreen
 from candat.terminal import TerminalPane
+from helpers import chord
 
 pytestmark = pytest.mark.asyncio
-
-
-async def chord(pilot, *keys):
-    for key in keys:
-        await pilot.press(key)
-        await pilot.pause()
-    await pilot.pause()
 
 
 async def test_r_files_get_highlighting(tmp_path: Path):
@@ -75,8 +69,7 @@ async def test_buffer_list_switches_buffers(tmp_path: Path):
         assert app.active_editor.path == a
 
 
-async def test_terminal_scrollback(monkeypatch):
-    monkeypatch.setenv("SHELL", "/bin/bash")
+async def test_terminal_scrollback(bash_shell):
     app = CandatApp()
     async with app.run_test() as pilot:
         await chord(pilot, "ctrl+x", "t")

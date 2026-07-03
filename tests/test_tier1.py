@@ -1,49 +1,19 @@
 """Tests for tier-1 features: send-to-REPL, project search, query-replace,
 comment toggle."""
 
-import asyncio
 from pathlib import Path
 
 import pytest
-from textual.widgets import Input, OptionList
+from textual.widgets import Input
 from textual.widgets.text_area import Selection
 
 from candat.app import CandatApp
 from candat.projectsearch import SearchResultsScreen, search_project
 from candat.replace import QueryReplaceScreen
 from candat.terminal import TerminalPane
+from helpers import chord, editor_with_text, make_project, wait_for
 
 pytestmark = pytest.mark.asyncio
-
-
-async def chord(pilot, *keys):
-    for key in keys:
-        await pilot.press(key)
-        await pilot.pause()
-    await pilot.pause()
-
-
-async def app_with_text(text: str, path: Path | None = None):
-    app = CandatApp([path] if path else None)
-    pilot_cm = app.run_test()
-    pilot = await pilot_cm.__aenter__()
-    editor = app.active_editor
-    if path is None:
-        editor.text = text
-        editor.selection = Selection((0, 0), (0, 0))
-    await pilot.pause()
-    return app, pilot, pilot_cm, editor
-
-
-async def wait_for(pilot, predicate, timeout=8.0):
-    elapsed = 0.0
-    while elapsed < timeout:
-        await pilot.pause()
-        if predicate():
-            return True
-        await asyncio.sleep(0.1)
-        elapsed += 0.1
-    return False
 
 
 # -- send to REPL ---------------------------------------------------------
@@ -51,8 +21,7 @@ async def wait_for(pilot, predicate, timeout=8.0):
 
 async def test_send_line_to_repl_opens_terminal_and_advances(monkeypatch):
     monkeypatch.setenv("SHELL", "/bin/bash")
-    app, pilot, cm, editor = await app_with_text("echo fi''rst\necho second\n")
-    try:
+    async with editor_with_text("echo fi''rst\necho second\n") as (app, pilot, editor):
         await chord(pilot, "ctrl+c", "ctrl+c")
         terminal = app.query_one(TerminalPane)
         assert terminal.has_class("-open")
@@ -65,14 +34,11 @@ async def test_send_line_to_repl_opens_terminal_and_advances(monkeypatch):
         assert terminal._screen.lines == terminal.content_size.height
         text_of = lambda: "\n".join(terminal._screen.display)
         assert await wait_for(pilot, lambda: "first" in text_of())
-    finally:
-        await cm.__aexit__(None, None, None)
 
 
 async def test_send_region_to_repl(monkeypatch):
     monkeypatch.setenv("SHELL", "/bin/bash")
-    app, pilot, cm, editor = await app_with_text("echo o''ne\necho tw''o\necho three\n")
-    try:
+    async with editor_with_text("echo o''ne\necho tw''o\necho three\n") as (app, pilot, editor):
         await pilot.press("ctrl+@")
         await pilot.press("ctrl+n", "ctrl+n")  # mark first two lines
         await chord(pilot, "ctrl+c", "ctrl+c")
@@ -80,8 +46,6 @@ async def test_send_region_to_repl(monkeypatch):
         text_of = lambda: "\n".join(terminal._screen.display)
         assert await wait_for(pilot, lambda: "one" in text_of() and "two" in text_of())
         assert not editor.mark_active
-    finally:
-        await cm.__aexit__(None, None, None)
 
 
 async def test_send_before_shell_ready_is_queued(tmp_path: Path, monkeypatch):
@@ -93,8 +57,7 @@ async def test_send_before_shell_ready_is_queued(tmp_path: Path, monkeypatch):
     slow_shell.write_text("#!/bin/sh\nsleep 0.7\nexec /bin/bash\n")
     slow_shell.chmod(0o755)
     monkeypatch.setenv("SHELL", str(slow_shell))
-    app, pilot, cm, editor = await app_with_text("echo del''ayed\n")
-    try:
+    async with editor_with_text("echo del''ayed\n") as (app, pilot, editor):
         await chord(pilot, "ctrl+c", "ctrl+c")
         terminal = app.query_one(TerminalPane)
         assert terminal.running
@@ -102,8 +65,6 @@ async def test_send_before_shell_ready_is_queued(tmp_path: Path, monkeypatch):
         text_of = lambda: "\n".join(terminal._screen.display)
         assert await wait_for(pilot, lambda: "delayed" in text_of(), timeout=12)
         assert not terminal._pending_input
-    finally:
-        await cm.__aexit__(None, None, None)
 
 
 # -- comment toggle ---------------------------------------------------------
@@ -112,8 +73,7 @@ async def test_send_before_shell_ready_is_queued(tmp_path: Path, monkeypatch):
 async def test_toggle_comment_line_and_region(tmp_path: Path):
     script = tmp_path / "s.py"
     script.write_text("a = 1\n\nb = 2\n")
-    app, pilot, cm, editor = await app_with_text("", script)
-    try:
+    async with editor_with_text("", script) as (app, pilot, editor):
         await pilot.press("alt+semicolon")
         assert editor.text == "# a = 1\n\nb = 2\n"
         await pilot.press("alt+semicolon")
@@ -127,17 +87,12 @@ async def test_toggle_comment_line_and_region(tmp_path: Path):
         assert editor.mark_active  # region survives
         await pilot.press("alt+semicolon")
         assert editor.text == "a = 1\n\nb = 2\n"
-    finally:
-        await cm.__aexit__(None, None, None)
 
 
 async def test_toggle_comment_unsupported_language():
-    app, pilot, cm, editor = await app_with_text("plain text\n")
-    try:
+    async with editor_with_text("plain text\n") as (app, pilot, editor):
         await pilot.press("alt+semicolon")
         assert editor.text == "plain text\n"  # unchanged, just a warning
-    finally:
-        await cm.__aexit__(None, None, None)
 
 
 # -- query replace ---------------------------------------------------------
@@ -151,8 +106,7 @@ async def prompt_submit(app, pilot, value):
 
 
 async def test_query_replace_y_n_q(tmp_path: Path):
-    app, pilot, cm, editor = await app_with_text("cat dog cat bird cat\n")
-    try:
+    async with editor_with_text("cat dog cat bird cat\n") as (app, pilot, editor):
         await pilot.press("alt+percent_sign")
         await pilot.pause()
         await prompt_submit(app, pilot, "cat")
@@ -163,13 +117,10 @@ async def test_query_replace_y_n_q(tmp_path: Path):
         await pilot.press("q")  # stop
         await pilot.pause()
         assert editor.text == "fox dog cat bird cat\n"
-    finally:
-        await cm.__aexit__(None, None, None)
 
 
 async def test_query_replace_bang_replaces_rest():
-    app, pilot, cm, editor = await app_with_text("x1 x2 x3 x4\n")
-    try:
+    async with editor_with_text("x1 x2 x3 x4\n") as (app, pilot, editor):
         await pilot.press("escape", "percent_sign")  # ESC % == M-%
         await pilot.pause()
         await prompt_submit(app, pilot, "x")
@@ -179,21 +130,9 @@ async def test_query_replace_bang_replaces_rest():
         await pilot.pause()
         assert editor.text == "y1 y2 y3 y4\n"
         assert len(app.screen_stack) == 1
-    finally:
-        await cm.__aexit__(None, None, None)
 
 
 # -- project search ---------------------------------------------------------
-
-
-def make_project(tmp_path: Path) -> Path:
-    (tmp_path / "alpha.py").write_text("def needle_one():\n    pass\n")
-    sub = tmp_path / "pkg"
-    sub.mkdir()
-    (sub / "beta.py").write_text("x = 1\nneedle_two = 2\n")
-    (tmp_path / ".git").mkdir()
-    (tmp_path / ".git" / "junk.py").write_text("needle_hidden\n")
-    return tmp_path
 
 
 async def test_search_project_function(tmp_path: Path):

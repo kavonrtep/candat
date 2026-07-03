@@ -1,7 +1,6 @@
 """Meta-key handling: real-terminal alt events, ESC prefix, line moving,
 and the linked preview scroll."""
 
-import asyncio
 from pathlib import Path
 
 import pytest
@@ -10,19 +9,9 @@ from textual.widgets.text_area import Selection
 
 from candat.app import CandatApp
 from candat.preview import MarkdownPreview
+from helpers import editor_with_text
 
 pytestmark = pytest.mark.asyncio
-
-
-async def app_with_text(text: str):
-    app = CandatApp()
-    pilot_cm = app.run_test()
-    pilot = await pilot_cm.__aenter__()
-    editor = app.active_editor
-    editor.text = text
-    editor.selection = Selection((0, 0), (0, 0))
-    await pilot.pause()
-    return app, pilot, pilot_cm, editor
 
 
 async def press_real_alt(pilot, editor, key: str, character: str | None):
@@ -34,8 +23,7 @@ async def press_real_alt(pilot, editor, key: str, character: str | None):
 
 
 async def test_real_alt_w_copies_region_instead_of_typing_w():
-    app, pilot, cm, editor = await app_with_text("hello world\n")
-    try:
+    async with editor_with_text("hello world\n") as (app, pilot, editor):
         await pilot.press("ctrl+@")
         for _ in range(5):
             await pilot.press("ctrl+f")
@@ -44,25 +32,19 @@ async def test_real_alt_w_copies_region_instead_of_typing_w():
         assert editor.text == "hello world\n"  # no stray "w" inserted
         assert app.kill_ring.current == "hello"
         assert not editor.mark_active
-    finally:
-        await cm.__aexit__(None, None, None)
 
 
 async def test_real_alt_d_and_f_do_not_self_insert():
-    app, pilot, cm, editor = await app_with_text("one two three\n")
-    try:
+    async with editor_with_text("one two three\n") as (app, pilot, editor):
         await press_real_alt(pilot, editor, "alt+f", "f")
         assert editor.point == (0, 3)
         await press_real_alt(pilot, editor, "alt+d", "d")
         assert editor.text == "one three\n"
         assert app.kill_ring.current == " two"
-    finally:
-        await cm.__aexit__(None, None, None)
 
 
 async def test_escape_acts_as_meta_prefix():
-    app, pilot, cm, editor = await app_with_text("hello world\n")
-    try:
+    async with editor_with_text("hello world\n") as (app, pilot, editor):
         # ESC w == M-w (kill-ring-save), as in emacs.
         await pilot.press("ctrl+@")
         for _ in range(5):
@@ -77,13 +59,10 @@ async def test_escape_acts_as_meta_prefix():
         editor.selection = Selection((1, 0), (1, 0))
         await pilot.press("escape", "up")
         assert editor.text == "bbb\naaa\n"
-    finally:
-        await cm.__aexit__(None, None, None)
 
 
 async def test_move_line_up_down():
-    app, pilot, cm, editor = await app_with_text("one\ntwo\nthree\n")
-    try:
+    async with editor_with_text("one\ntwo\nthree\n") as (app, pilot, editor):
         editor.selection = Selection((1, 1), (1, 1))  # cursor on "two"
         await pilot.press("alt+up")
         assert editor.text == "two\none\nthree\n"
@@ -93,13 +72,10 @@ async def test_move_line_up_down():
         await pilot.press("alt+down", "alt+down")
         assert editor.text == "one\nthree\ntwo\n"
         assert editor.point == (2, 1)
-    finally:
-        await cm.__aexit__(None, None, None)
 
 
 async def test_move_region_block_down_keeps_region():
-    app, pilot, cm, editor = await app_with_text("a\nb\nc\nd\n")
-    try:
+    async with editor_with_text("a\nb\nc\nd\n") as (app, pilot, editor):
         # Mark lines a+b (region ends at column 0 of line c -> c not included).
         await pilot.press("ctrl+@")
         await pilot.press("ctrl+n", "ctrl+n")
@@ -110,8 +86,6 @@ async def test_move_region_block_down_keeps_region():
         assert editor.selected_text == "a\nb\n"
         await pilot.press("alt+down")
         assert editor.text == "c\nd\na\nb\n"
-    finally:
-        await cm.__aexit__(None, None, None)
 
 
 async def test_preview_scroll_follows_editor(tmp_path: Path):

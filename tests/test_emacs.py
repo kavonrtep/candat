@@ -1,36 +1,16 @@
 """Tests for the emacs editing layer: kill ring, mark/region, isearch, M-x."""
 
-from pathlib import Path
 
 import pytest
-from textual.widgets.text_area import Selection
 
 from candat.app import CandatApp
+from helpers import chord, editor_with_text
 
 pytestmark = pytest.mark.asyncio
 
 
-async def chord(pilot, *keys):
-    for key in keys:
-        await pilot.press(key)
-        await pilot.pause()
-    await pilot.pause()
-
-
-async def app_with_text(text: str):
-    app = CandatApp()
-    pilot_cm = app.run_test()
-    pilot = await pilot_cm.__aenter__()
-    editor = app.active_editor
-    editor.text = text
-    editor.selection = Selection((0, 0), (0, 0))
-    await pilot.pause()
-    return app, pilot, pilot_cm, editor
-
-
 async def test_movement_keys():
-    app, pilot, cm, editor = await app_with_text("alpha beta\ngamma delta\n")
-    try:
+    async with editor_with_text("alpha beta\ngamma delta\n") as (app, pilot, editor):
         await pilot.press("ctrl+f", "ctrl+f")
         assert editor.point == (0, 2)
         await pilot.press("ctrl+n")
@@ -47,13 +27,10 @@ async def test_movement_keys():
         assert editor.point == editor.document.end
         await pilot.press("alt+less_than_sign")
         assert editor.point == (0, 0)
-    finally:
-        await cm.__aexit__(None, None, None)
 
 
 async def test_kill_line_and_yank():
-    app, pilot, cm, editor = await app_with_text("first line\nsecond line\n")
-    try:
+    async with editor_with_text("first line\nsecond line\n") as (app, pilot, editor):
         # C-k kills to end of line; second C-k kills the newline (appends).
         await pilot.press("ctrl+k")
         assert editor.text == "\nsecond line\n"
@@ -64,13 +41,10 @@ async def test_kill_line_and_yank():
         await pilot.press("ctrl+y")
         assert editor.text == "first line\nsecond line\n"
         assert editor.point == (1, 0)
-    finally:
-        await cm.__aexit__(None, None, None)
 
 
 async def test_mark_region_kill_and_copy():
-    app, pilot, cm, editor = await app_with_text("hello world\n")
-    try:
+    async with editor_with_text("hello world\n") as (app, pilot, editor):
         # Set mark, extend region with plain movement, kill it.
         await pilot.press("ctrl+@")
         assert editor.mark_active
@@ -89,13 +63,10 @@ async def test_mark_region_kill_and_copy():
         assert editor.text == " world\n"
         assert app.kill_ring.current == " world"
         assert not editor.mark_active
-    finally:
-        await cm.__aexit__(None, None, None)
 
 
 async def test_typing_deactivates_mark_without_deleting():
-    app, pilot, cm, editor = await app_with_text("abc\n")
-    try:
+    async with editor_with_text("abc\n") as (app, pilot, editor):
         await pilot.press("ctrl+@")
         await pilot.press("ctrl+f", "ctrl+f")
         assert editor.selected_text == "ab"
@@ -103,13 +74,10 @@ async def test_typing_deactivates_mark_without_deleting():
         # Emacs inserts at point without deleting the region.
         assert editor.text == "abxc\n"
         assert not editor.mark_active
-    finally:
-        await cm.__aexit__(None, None, None)
 
 
 async def test_yank_pop_rotates_kill_ring():
-    app, pilot, cm, editor = await app_with_text("one two\n")
-    try:
+    async with editor_with_text("one two\n") as (app, pilot, editor):
         await pilot.press("alt+d")  # kill "one"
         await pilot.press("ctrl+f")
         await pilot.press("alt+d")  # kill "two" (not consecutive: movement between)
@@ -119,13 +87,10 @@ async def test_yank_pop_rotates_kill_ring():
         assert editor.text == " two\n"
         await pilot.press("alt+y")  # yank-pop -> previous kill
         assert editor.text == " one\n"
-    finally:
-        await cm.__aexit__(None, None, None)
 
 
 async def test_kill_word_backward_prepends():
-    app, pilot, cm, editor = await app_with_text("foo bar\n")
-    try:
+    async with editor_with_text("foo bar\n") as (app, pilot, editor):
         await pilot.press("ctrl+e")
         await pilot.press("alt+backspace")
         assert app.kill_ring.current == "bar"
@@ -133,13 +98,10 @@ async def test_kill_word_backward_prepends():
         # Consecutive backward kills prepend into one entry.
         assert app.kill_ring.current == "foo bar"
         assert editor.text == "\n"
-    finally:
-        await cm.__aexit__(None, None, None)
 
 
 async def test_exchange_point_and_mark_and_undo_chords():
-    app, pilot, cm, editor = await app_with_text("hello\n")
-    try:
+    async with editor_with_text("hello\n") as (app, pilot, editor):
         await pilot.press("ctrl+@")
         await pilot.press("ctrl+f", "ctrl+f", "ctrl+f")
         assert editor.point == (0, 3)
@@ -161,13 +123,10 @@ async def test_exchange_point_and_mark_and_undo_chords():
         assert "z" in editor.text
         await chord(pilot, "ctrl+x", "u")
         assert editor.text == "hello\n"
-    finally:
-        await cm.__aexit__(None, None, None)
 
 
 async def test_isearch_forward_and_accept():
-    app, pilot, cm, editor = await app_with_text("alpha beta\ngamma beta end\n")
-    try:
+    async with editor_with_text("alpha beta\ngamma beta end\n") as (app, pilot, editor):
         await pilot.press("ctrl+s")
         await pilot.pause()
         assert len(app.screen_stack) == 2
@@ -187,13 +146,10 @@ async def test_isearch_forward_and_accept():
         assert editor.point == (0, 10)
         assert editor.mark == (0, 0)
         assert app.last_search == "beta"
-    finally:
-        await cm.__aexit__(None, None, None)
 
 
 async def test_isearch_cancel_restores_origin():
-    app, pilot, cm, editor = await app_with_text("alpha beta\n")
-    try:
+    async with editor_with_text("alpha beta\n") as (app, pilot, editor):
         await pilot.press("ctrl+s")
         await pilot.pause()
         await pilot.press("b", "e")
@@ -202,13 +158,10 @@ async def test_isearch_cancel_restores_origin():
         await pilot.pause()
         assert len(app.screen_stack) == 1
         assert editor.point == (0, 0)
-    finally:
-        await cm.__aexit__(None, None, None)
 
 
 async def test_isearch_backward():
-    app, pilot, cm, editor = await app_with_text("beta one beta two\n")
-    try:
+    async with editor_with_text("beta one beta two\n") as (app, pilot, editor):
         await pilot.press("alt+greater_than_sign")
         await pilot.press("ctrl+r")
         await pilot.pause()
@@ -220,8 +173,6 @@ async def test_isearch_backward():
         assert editor.point == (0, 0)
         await pilot.press("enter")
         await pilot.pause()
-    finally:
-        await cm.__aexit__(None, None, None)
 
 
 async def test_command_palette_opens_on_alt_x():

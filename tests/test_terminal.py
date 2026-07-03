@@ -7,36 +7,14 @@ import pytest
 
 from candat.app import CandatApp
 from candat.terminal import TerminalPane
+from helpers import chord, terminal_text, wait_for
 
 pytestmark = pytest.mark.asyncio
 
 
-async def chord(pilot, *keys):
-    for key in keys:
-        await pilot.press(key)
-        await pilot.pause()
-    await pilot.pause()
-
-
-def terminal_text(terminal: TerminalPane) -> str:
-    return "\n".join(terminal._screen.display) if terminal._screen else ""
-
-
-async def wait_for(pilot, predicate, timeout=8.0):
-    elapsed = 0.0
-    while elapsed < timeout:
-        await pilot.pause()
-        if predicate():
-            return True
-        await asyncio.sleep(0.1)
-        elapsed += 0.1
-    return False
-
-
 @pytest.fixture(autouse=True)
-def plain_shell(monkeypatch):
-    monkeypatch.setenv("SHELL", "/bin/bash")
-    monkeypatch.setenv("PS1", "$ ")
+def _use_bash(bash_shell):
+    """All terminal tests run against bash (conftest bash_shell fixture)."""
 
 
 async def test_toggle_spawns_shell_and_runs_command():

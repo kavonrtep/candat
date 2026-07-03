@@ -1,6 +1,5 @@
 """Tests for read-only mode and auto-reload of files changed on disk."""
 
-import os
 from pathlib import Path
 
 import pytest
@@ -9,22 +8,9 @@ from textual.widgets.text_area import Selection
 
 from candat.app import CandatApp
 from candat.dialogs import ConfirmScreen
+from helpers import chord, touch_disk
 
 pytestmark = pytest.mark.asyncio
-
-
-async def chord(pilot, *keys):
-    for key in keys:
-        await pilot.press(key)
-        await pilot.pause()
-    await pilot.pause()
-
-
-def touch_disk(path: Path, content: str) -> None:
-    """Write new content with a guaranteed-different mtime."""
-    old_mtime = path.stat().st_mtime if path.exists() else 0
-    path.write_text(content)
-    os.utime(path, (old_mtime + 5, old_mtime + 5))
 
 
 # -- read-only mode ---------------------------------------------------------

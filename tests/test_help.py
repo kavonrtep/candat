@@ -4,15 +4,9 @@ import pytest
 
 from candat.app import CandatApp
 from candat.help import HelpScreen
+from helpers import chord
 
 pytestmark = pytest.mark.asyncio
-
-
-async def chord(pilot, *keys):
-    for key in keys:
-        await pilot.press(key)
-        await pilot.pause()
-    await pilot.pause()
 
 
 async def test_f1_opens_and_closes_help():

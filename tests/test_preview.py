@@ -8,15 +8,9 @@ from textual.widgets import Markdown
 
 from candat.app import CandatApp
 from candat.preview import MarkdownPreview
+from helpers import chord
 
 pytestmark = pytest.mark.asyncio
-
-
-async def chord(pilot, *keys):
-    for key in keys:
-        await pilot.press(key)
-        await pilot.pause()
-    await pilot.pause()
 
 
 async def test_markdown_opens_in_split_preview(tmp_path: Path):
