@@ -1,0 +1,158 @@
+"""The navigation panel: a file tree with a live filter box on top.
+
+Typing in the filter narrows the tree to files whose path (relative to the
+root) contains the query, keeping their ancestor directories so matches stay
+reachable, and auto-expanding so they are visible. Clearing it restores the
+full lazy tree.
+"""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+from typing import Iterable
+
+from textual import on
+from textual.app import ComposeResult
+from textual.binding import Binding
+from textual.containers import Vertical
+from textual.widgets import DirectoryTree, Input
+
+IGNORE_DIRS = {
+    ".git",
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    "node_modules",
+    ".ruff_cache",
+}
+MAX_MATCHES = 5000
+
+
+class FileTree(DirectoryTree):
+    """A DirectoryTree that can filter to files matching a substring query."""
+
+    BINDINGS = [Binding("slash", "focus_filter", "filter", show=False)]
+
+    def __init__(self, path, **kwargs) -> None:
+        super().__init__(path, **kwargs)
+        self._query = ""
+        self._allowed: set[Path] = set()
+
+    def filter_paths(self, paths: Iterable[Path]) -> Iterable[Path]:
+        if not self._query:
+            return paths
+        return [p for p in paths if p in self._allowed]
+
+    async def set_filter(self, query: str) -> None:
+        """Apply a filter, reload, and reveal the matches."""
+        self._query = query.strip().lower()
+        if not self._query:
+            self._allowed = set()
+            await self.reload()
+            return
+        self._allowed = self._matching()
+        await self._reveal_matches()
+
+    async def _reveal_matches(self) -> None:
+        """Load and expand exactly the directories on the path to a match.
+
+        DirectoryTree loads children lazily, so expand_all() cannot reach a
+        deep match in one pass. Walk the allowed directories top-down,
+        loading each node's (already filtered) children before descending.
+        """
+        stack = [self.root]
+        while stack:
+            node = stack.pop()
+            await self.reload_node(node)
+            node.expand()
+            for child in node.children:
+                entry = child.data
+                if entry is not None and entry.path in self._allowed and entry.path.is_dir():
+                    stack.append(child)
+
+    def _matching(self) -> set[Path]:
+        root = Path(os.path.abspath(self.path))
+        allowed: set[Path] = set()
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = [d for d in dirnames if d not in IGNORE_DIRS]
+            base = Path(dirpath)
+            for name in filenames:
+                path = base / name
+                if self._query in os.path.relpath(path, root).lower():
+                    node = path
+                    while node not in allowed:
+                        allowed.add(node)
+                        if node == root:
+                            break
+                        node = node.parent
+            if len(allowed) > MAX_MATCHES:
+                break
+        return allowed
+
+    def action_focus_filter(self) -> None:
+        if isinstance(self.parent, NavPanel):
+            self.parent.query_one(Input).focus()
+
+
+class NavPanel(Vertical):
+    """File tree plus its filter input."""
+
+    DEFAULT_CSS = """
+    NavPanel {
+        width: 32;
+        max-width: 40%;
+    }
+    NavPanel Input#tree-filter {
+        height: 1;
+        border: none;
+        padding: 0 1;
+        background: $surface;
+    }
+    NavPanel FileTree {
+        height: 1fr;
+        background: $surface;
+    }
+    """
+
+    def __init__(self, root: Path, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._root = root
+        self._debounce = None
+
+    def compose(self) -> ComposeResult:
+        yield Input(placeholder="Filter files  (/)", id="tree-filter")
+        yield FileTree(self._root, id="tree")
+
+    @property
+    def tree(self) -> FileTree:
+        return self.query_one(FileTree)
+
+    @on(Input.Changed, "#tree-filter")
+    def _filter_changed(self, event: Input.Changed) -> None:
+        if self._debounce is not None:
+            self._debounce.stop()
+        query = event.value
+        self._debounce = self.set_timer(
+            0.15, lambda: self.run_worker(self.tree.set_filter(query))
+        )
+
+    @on(Input.Submitted, "#tree-filter")
+    def _filter_submitted(self) -> None:
+        # Enter jumps into the (filtered) tree to navigate results.
+        self.tree.focus()
+
+    def on_key(self, event) -> None:
+        # Esc in the filter clears it and returns to the tree.
+        if event.key == "escape" and isinstance(self.focused_child, Input):
+            event.stop()
+            filter_input = self.query_one(Input)
+            filter_input.value = ""
+            self.run_worker(self.tree.set_filter(""))
+            self.tree.focus()
+
+    @property
+    def focused_child(self):
+        return self.app.focused

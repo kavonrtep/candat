@@ -90,6 +90,7 @@ The table is read-only; big files stream in as you scroll.
 | `C-x t` | toggle the terminal panel |
 | `Shift+PgUp/PgDn` | terminal scrollback (typing snaps back) |
 | `C-x o` | cycle focus: tree → editor → terminal |
+| `/` (in file tree) | filter the tree by path; `Esc` clears |
 | `C-c C-v` | markdown preview: split / preview-only / off |
 | `M-x`, `Ctrl+Shift+P` | command palette |
 | `F1`, `C-x ?` | this help |

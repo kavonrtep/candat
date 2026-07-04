@@ -20,6 +20,7 @@ from .dialogs import ConfirmScreen, PromptScreen
 from .editor import EditorBuffer
 from .help import HelpScreen
 from .killring import KillRing
+from .nav import NavPanel
 from .pane import BufferPane, pane_of
 from .preview import PREVIEW_MODES
 from .projectsearch import SearchResultsScreen, search_project
@@ -60,11 +61,8 @@ class CandatApp(App[None]):
     #workspace {
         height: 1fr;
     }
-    DirectoryTree {
-        width: 32;
-        max-width: 40%;
+    NavPanel {
         border-right: solid $panel;
-        background: $surface;
     }
     TabbedContent {
         width: 1fr;
@@ -133,7 +131,7 @@ class CandatApp(App[None]):
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="workspace"):
-            yield DirectoryTree(self._root)
+            yield NavPanel(self._root)
             yield TabbedContent()
         yield TerminalPane()
         yield StatusBar()

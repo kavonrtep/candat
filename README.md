@@ -83,7 +83,7 @@ scroll rather than loading whole. In the table: `/` (or `C-s`) searches,
 `n` repeats, `&` filters rows by regex, `g`/`G` jump to top/bottom. `C-c
 C-v` switches between the table and the raw text. The table is read-only.
 
-The file tree opens files on selection. The default theme is `candat-light`
+The file tree has a filter box on top: press `/` while the tree is focused (or click it), type to narrow the tree to files whose path matches, `Esc` clears it. The file tree opens files on selection. The default theme is `candat-light`
 (high-contrast dark-on-white). The markdown preview is linked: it follows
 the editor's scroll position.
 
