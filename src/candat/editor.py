@@ -39,13 +39,70 @@ LANGUAGES: dict[str, str] = {
     ".java": "java",
     ".r": "r",
     ".rmd": "markdown",
+    # config formats
+    ".ini": "ini",
+    ".cfg": "ini",
+    ".conf": "ini",
+    ".service": "ini",
+    ".mk": "make",
+    ".mak": "make",
+    ".dockerfile": "dockerfile",
+    ".env": "bash",
+}
+
+# Files matched by exact name (lowercased) rather than extension.
+FILENAMES: dict[str, str] = {
+    "makefile": "make",
+    "gnumakefile": "make",
+    "dockerfile": "dockerfile",
+    "containerfile": "dockerfile",
+    "setup.cfg": "ini",
+    "tox.ini": "ini",
+    "pytest.ini": "ini",
+    "mypy.ini": "ini",
+    ".editorconfig": "ini",
+    ".gitconfig": "ini",
+    ".flake8": "ini",
+    ".pylintrc": "ini",
+    ".coveragerc": "ini",
+    ".bashrc": "bash",
+    ".bash_profile": "bash",
+    ".bash_aliases": "bash",
+    ".profile": "bash",
+    ".zshrc": "bash",
+    ".zshenv": "bash",
+    ".zprofile": "bash",
+    ".inputrc": "bash",
 }
 
 
 def language_for(path: Path | None) -> str | None:
     if path is None:
         return None
+    name = path.name.lower()
+    if name in FILENAMES:
+        return FILENAMES[name]
+    if name.startswith("dockerfile"):  # Dockerfile.dev, Dockerfile.prod
+        return "dockerfile"
+    if name.startswith(".env"):  # .env.local, .env.production
+        return "bash"
     return LANGUAGES.get(path.suffix.lower())
+
+
+def extra_language(name: str):
+    """Grammar + highlight query for a non-builtin language (registered on
+    demand), or None if it isn't one / the grammar is unavailable."""
+    if name == "r":
+        from .rlang import R_HIGHLIGHTS, r_language
+
+        grammar = r_language()
+        return (grammar, R_HIGHLIGHTS) if grammar is not None else None
+    from .configlang import CONFIG_LANGUAGES, config_grammar
+
+    if name in CONFIG_LANGUAGES:
+        grammar = config_grammar(name)
+        return (grammar, CONFIG_LANGUAGES[name][1]) if grammar is not None else None
+    return None
 
 
 # Meta (M-) commands: key -> editor action. Dispatched from _on_key so they
@@ -142,12 +199,9 @@ class EditorBuffer(TextArea):
 
     def _apply_language(self) -> None:
         language = language_for(self.path)
-        if language == "r" and "r" not in self.available_languages:
-            from .rlang import R_HIGHLIGHTS, r_language
-
-            grammar = r_language()
-            if grammar is not None:
-                self.register_language("r", grammar, R_HIGHLIGHTS)
+        if language is not None and language not in self.available_languages:
+            if (extra := extra_language(language)) is not None:
+                self.register_language(language, *extra)
         if language in self.available_languages:
             self.language = language
 

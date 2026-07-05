@@ -57,6 +57,7 @@ KEY_HELP = """\
 | `M-up` / `M-down` | move line or marked block up / down |
 | `M-;` | toggle line comment on line or region |
 | `C-x u`, `C-/`, `C-z` | undo |
+| `C-x w` | toggle soft wrap |
 | `C-d` | delete char |
 
 ## Search & replace

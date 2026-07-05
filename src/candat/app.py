@@ -46,8 +46,9 @@ class StatusBar(Static):
         row, col = editor.cursor_location
         language = editor.language or "text"
         where = str(editor.path) if editor.path else editor.display_name
+        wrap = "  wrap" if editor.soft_wrap else ""
         self.update(
-            f" {flag} {where}   Ln {row + 1}, Col {col + 1}   {language}"
+            f" {flag} {where}   Ln {row + 1}, Col {col + 1}   {language}{wrap}"
             "   [dim]F1 help[/]"
         )
 
@@ -379,6 +380,16 @@ class CandatApp(App[None]):
     def action_comment_dwim(self) -> None:
         if (editor := self.active_editor) is not None:
             editor.action_toggle_comment()
+
+    def action_toggle_soft_wrap(self) -> None:
+        editor = self.active_editor
+        if editor is None:
+            return
+        editor.soft_wrap = not editor.soft_wrap
+        self._refresh_status()
+        self.notify(
+            f"Soft wrap {'on' if editor.soft_wrap else 'off'}", timeout=1.5
+        )
 
     def action_toggle_read_only(self) -> None:
         editor = self.active_editor

@@ -41,6 +41,7 @@ Passing a directory sets the file-tree root; files are opened in buffers.
 | `C-x C-s` | save buffer |
 | `C-x C-w` | write buffer to another file |
 | `C-x C-q` | toggle read-only (status bar shows `%%`) |
+| `C-x w` | toggle soft wrap for this buffer |
 | `C-x C-r` | open a file read-only |
 | `C-x k` | kill buffer |
 | `C-x b` | buffer list (Enter switches; next buffer preselected) |
@@ -103,4 +104,5 @@ uv run pytest
    prompts, buffer list, scroll-synced preview, R/xml/html highlighting~~
 
 Syntax highlighting covers python, markdown, json, yaml, bash, html, xml,
-css, toml, js, sql, go, rust, java, and R (via tree-sitter-language-pack).
+css, toml, js, sql, go, rust, java, R, and config formats — INI/`.cfg`/
+`.conf`, Makefiles, Dockerfiles, and shell dotfiles (`.bashrc`, `.env`, …).

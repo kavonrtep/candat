@@ -28,6 +28,7 @@ CTRL_X_MAP: dict[str, tuple[str, str]] = {
     "u": ("undo_buffer", "undo"),
     "t": ("toggle_terminal", "toggle terminal"),
     "g": ("project_search", "search project"),
+    "w": ("toggle_soft_wrap", "toggle soft wrap"),
     "question_mark": ("help", "help"),
 }
 
