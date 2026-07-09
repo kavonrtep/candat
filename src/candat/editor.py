@@ -191,11 +191,59 @@ class EditorBuffer(TextArea):
         self._yank_end: tuple[int, int] | None = None
         self._meta = False  # one-shot Meta prefix set by a bare ESC
         self.disk_mtime: float | None = None  # mtime of path when last synced
+        # Other views of the same buffer (C-x 2 / C-x 3 of the same file).
+        self.links: list["EditorBuffer"] = []
+        self._syncing = False
         self._apply_language()
 
     @property
     def display_name(self) -> str:
         return self.path.name if self.path else "*untitled*"
+
+    # -- shared buffer (linked views) ---------------------------------------
+
+    def edit(self, edit):  # type: ignore[override]
+        """Apply an edit, then replay it to every linked view so windows on
+        the same buffer stay in sync while keeping their own cursors."""
+        result = super().edit(edit)
+        if self.links and not self._syncing:
+            for view in self.links:
+                view._syncing = True
+                try:
+                    view.replace(
+                        edit.text,
+                        edit.from_location,
+                        edit.to_location,
+                        maintain_selection_offset=True,
+                    )
+                finally:
+                    view._syncing = False
+        return result
+
+    def make_linked_view(self) -> "EditorBuffer":
+        """A second view of this buffer: same file and text, shared edits,
+        independent cursor and scroll."""
+        peers = [self, *self.links]
+        view = EditorBuffer(path=self.path, text=self.text)
+        view._saved_text = self._saved_text
+        view.modified = self.modified
+        view.disk_mtime = self.disk_mtime
+        for peer in peers:
+            peer.links.append(view)
+        view.links.extend(peers)
+        return view
+
+    def unlink(self) -> None:
+        """Detach this view from its buffer's other views (on close/kill)."""
+        for peer in self.links:
+            peer.links.remove(self)
+        self.links.clear()
+
+    def _sync_saved(self, saved_text: str, mtime: float | None) -> None:
+        """Propagate a save/reload baseline to a linked view."""
+        self._saved_text = saved_text
+        self.disk_mtime = mtime
+        self.modified = self.text != saved_text
 
     def _apply_language(self) -> None:
         language = language_for(self.path)
@@ -217,12 +265,29 @@ class EditorBuffer(TextArea):
         self._apply_language()
 
     def reload_from_disk(self) -> None:
-        """Re-read the file, keeping cursor and scroll position (clamped)."""
+        """Re-read the file into this view and every linked view, each keeping
+        its own cursor and scroll position (clamped)."""
         if self.path is None or not self.path.exists():
             return
+        text = self.path.read_text()
+        try:
+            mtime = self.path.stat().st_mtime
+        except OSError:
+            mtime = None
+        for view in [self, *self.links]:
+            view._reload_text(text, mtime)
+
+    def _reload_text(self, text: str, mtime: float | None) -> None:
         sel = self.selection
         scroll = self.scroll_y
-        self.load(self.path)
+        self._syncing = True  # wholesale replace, don't forward as an edit
+        try:
+            self.text = text
+        finally:
+            self._syncing = False
+        self.modified = False
+        self._saved_text = text
+        self.disk_mtime = mtime
         self.mark_active = False
         last_row = self.document.line_count - 1
 
@@ -247,6 +312,9 @@ class EditorBuffer(TextArea):
             self.disk_mtime = self.path.stat().st_mtime
         except OSError:
             self.disk_mtime = None
+        for view in self.links:  # linked views share the saved baseline
+            view.path = self.path
+            view._sync_saved(self.text, self.disk_mtime)
         return self.path
 
     def writable(self) -> bool:

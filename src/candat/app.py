@@ -214,25 +214,29 @@ class CandatApp(App[None]):
         """Every buffer across all groups (for disk-watch, quit, kill)."""
         return [pane.editor for pane in self.query(BufferPane)]
 
+    async def _add_pane(self, editor: EditorBuffer) -> BufferPane:
+        """Wrap an editor in a BufferPane and add it to the active group."""
+        self._buffer_count += 1
+        pane = BufferPane(editor, f"buffer-{self._buffer_count}")
+        await self.tabs.add_pane(pane)
+        # Linked preview: follow the editor's scroll position.
+        self.watch(editor, "scroll_y", pane.sync_preview_scroll, init=False)
+        self.tabs.active = pane.id
+        editor.focus()
+        if editor.language == "markdown":
+            await pane.set_preview_mode("split")
+        return pane
+
     async def _new_buffer(
         self, path: Path | None = None, load_text: bool = True
     ) -> EditorBuffer:
-        self._buffer_count += 1
-        pane_id = f"buffer-{self._buffer_count}"
         editor = EditorBuffer(path=None)
         if path is not None and path.exists() and load_text:
             editor.load(path)
         else:
             editor.path = path
             editor._apply_language()
-        pane = BufferPane(editor, pane_id)
-        await self.tabs.add_pane(pane)
-        # Linked preview: follow the editor's scroll position.
-        self.watch(editor, "scroll_y", pane.sync_preview_scroll, init=False)
-        self.tabs.active = pane_id
-        editor.focus()
-        if editor.language == "markdown":
-            await pane.set_preview_mode("split")
+        await self._add_pane(editor)
         return editor
 
     async def _open_path(self, path: Path) -> None:
@@ -583,6 +587,8 @@ class CandatApp(App[None]):
             self.notify(f"Save failed: {error}", severity="error")
             return
         self._refresh_tab_label(editor)
+        for view in editor.links:  # linked views are now clean too
+            self._refresh_tab_label(view)
         self._refresh_status()
         self.notify(f"Wrote {written}", timeout=2)
 
@@ -606,6 +612,7 @@ class CandatApp(App[None]):
     async def _kill(self, editor: EditorBuffer) -> None:
         group = group_of(editor) or self.active_group
         pane = pane_of(editor)
+        editor.unlink()  # detach from other views of this buffer
         if pane is not None and pane.id is not None:
             await group.remove_pane(pane.id)
         # Keep every window non-empty: replace a killed last buffer with a
@@ -667,6 +674,9 @@ class CandatApp(App[None]):
         if len(self.groups()) >= MAX_GROUPS:
             self.notify(f"At most {MAX_GROUPS} windows", severity="warning", timeout=2)
             return
+        # Emacs shows the current buffer in the new window: a linked view,
+        # sharing text and edits but with its own cursor and scroll.
+        current = self.active_editor
         box = self.query_one("#groups")
         box.set_class(stacked, "-stacked")
         self._group_count += 1
@@ -674,7 +684,10 @@ class CandatApp(App[None]):
         await box.mount(group)
         self._active_group = group
         self._sync_split_class()
-        await self._new_buffer()  # a fresh scratch buffer in the new window
+        if current is not None and current.path is not None:
+            await self._add_pane(current.make_linked_view())
+        else:
+            await self._new_buffer()  # scratch when there's nothing to share
 
     def action_split_window_below(self) -> None:
         self.call_later(self._split, True)
@@ -687,6 +700,8 @@ class CandatApp(App[None]):
         if survivor is None:
             return
         self._active_group = survivor
+        for pane in victim.query(BufferPane):
+            pane.editor.unlink()  # its buffers live on in other windows
         await victim.remove()
         self._sync_split_class()
         if (pane := survivor.active_pane) is not None:
@@ -721,6 +736,8 @@ class CandatApp(App[None]):
     async def _delete_other_windows(self, keep: EditorGroup) -> None:
         for group in self.groups():
             if group is not keep:
+                for pane in group.query(BufferPane):
+                    pane.editor.unlink()
                 await group.remove()
         self._active_group = keep
         self._sync_split_class()
@@ -839,7 +856,16 @@ class CandatApp(App[None]):
             terminal.focus()
 
     def action_request_quit(self) -> None:
-        unsaved = [e.display_name for e in self.all_editors() if e.modified]
+        # Dedupe linked views of the same modified buffer by path.
+        seen: set = set()
+        unsaved: list[str] = []
+        for editor in self.all_editors():
+            if not editor.modified:
+                continue
+            key = editor.path or id(editor)
+            if key not in seen:
+                seen.add(key)
+                unsaved.append(editor.display_name)
         if not unsaved:
             self.exit()
             return

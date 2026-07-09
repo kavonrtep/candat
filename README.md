@@ -46,7 +46,7 @@ Passing a directory sets the file-tree root; files are opened in buffers.
 | `C-x k` | kill buffer |
 | `C-x b` | buffer list (Enter switches; next buffer preselected) |
 | `C-x o` | move focus: tree → window(s) → terminal |
-| `C-x 3` / `C-x 2` | split window side-by-side / stacked |
+| `C-x 3` / `C-x 2` | split window side-by-side / stacked (same buffer, linked view) |
 | `C-x 0` / `C-x 1` | close this window / the others |
 | `C-x C-c` | quit (confirms if unsaved buffers) |
 | `C-x C-x` | exchange point and mark |

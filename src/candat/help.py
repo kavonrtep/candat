@@ -93,7 +93,9 @@ The table is read-only; big files stream in as you scroll.
 | `C-x 0` | close the current window |
 | `C-x 1` | close the other windows |
 
-Each window is its own tab group; a buffer lives in one window at a time.
+C-x 2 / C-x 3 open the current buffer in the new window as a linked view:
+same file and edits, but its own cursor and scroll — inspect or edit two
+places at once. C-x C-f / C-x b in a window can point it at another file.
 
 ## Panels & tools
 

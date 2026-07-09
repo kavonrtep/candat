@@ -14,7 +14,7 @@ def group_buffers(app):
     return [g.active_pane.editor.display_name for g in app.groups()]
 
 
-async def test_split_right_creates_second_window(tmp_path):
+async def test_split_right_shows_same_buffer_linked(tmp_path):
     f = tmp_path / "a.py"
     f.write_text("a\n")
     async with open_app([f]) as (app, pilot):
@@ -22,9 +22,60 @@ async def test_split_right_creates_second_window(tmp_path):
         await chord(pilot, "ctrl+x", "3")
         assert len(app.groups()) == 2
         assert not app.query_one("#groups").has_class("-stacked")
-        # The new window is active and holds a fresh scratch buffer.
-        assert app.active_editor.display_name == "*untitled*"
+        # Emacs: the new window shows the SAME buffer, as a linked view.
+        assert app.active_editor.path == f
+        v1 = app.groups()[0].active_pane.editor
+        v2 = app.groups()[1].active_pane.editor
+        assert v1 is not v2
+        assert v2 in v1.links and v1 in v2.links
         assert app.query_one("#groups").has_class("-split")
+
+
+async def test_linked_views_share_edits_keep_own_cursor(tmp_path):
+    from textual.widgets.text_area import Selection
+
+    f = tmp_path / "notes.txt"
+    f.write_text("l0\nl1\nl2\nl3\n")
+    async with open_app([f]) as (app, pilot):
+        v1 = app.active_editor
+        v1.selection = Selection((3, 0), (3, 0))
+        await chord(pilot, "ctrl+x", "3")
+        v2 = app.active_editor
+        v2.selection = Selection((0, 0), (0, 0))
+        v2.insert("NEW\n", (0, 0))
+        await pilot.pause()
+        assert v1.text == v2.text == "NEW\nl0\nl1\nl2\nl3\n"
+        assert v1.selection.end == (4, 0)  # shifted down by the inserted line
+        assert v2.selection.end == (1, 0)
+        assert v1.modified and v2.modified
+
+
+async def test_saving_one_linked_view_clears_both(tmp_path):
+    f = tmp_path / "notes.txt"
+    f.write_text("x\n")
+    async with open_app([f]) as (app, pilot):
+        v1 = app.active_editor
+        await chord(pilot, "ctrl+x", "3")
+        v2 = app.active_editor
+        v2.insert("y", (0, 0))
+        await pilot.pause()
+        assert v1.modified and v2.modified
+        await chord(pilot, "ctrl+x", "ctrl+s")
+        assert not v1.modified and not v2.modified
+        assert f.read_text() == "yx\n"
+
+
+async def test_closing_one_window_keeps_buffer_in_other(tmp_path):
+    f = tmp_path / "notes.txt"
+    f.write_text("keep\n")
+    async with open_app([f]) as (app, pilot):
+        await chord(pilot, "ctrl+x", "3")
+        await chord(pilot, "ctrl+x", "0")  # close the linked window
+        assert len(app.groups()) == 1
+        editor = app.active_editor
+        assert editor.path == f
+        assert editor.text == "keep\n"
+        assert editor.links == []  # detached, edits no longer forwarded
 
 
 async def test_split_below_is_stacked(tmp_path):
