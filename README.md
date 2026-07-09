@@ -72,7 +72,8 @@ Passing a directory sets the file-tree root; files are opened in buffers.
 | `C-g` / `Esc` | cancel chord / prompt / search / mark |
 
 `ESC` acts as the Meta prefix, so `ESC w` == `M-w`, `ESC x` == `M-x`, etc.
-`Tab` completes paths in the find-file and write-file prompts.
+`Tab` completes paths in the find-file and write-file prompts, listing the
+choices (navigable with arrows, Enter to pick) when more than one matches.
 
 Open files are watched for external changes: clean buffers reload
 automatically; buffers with local edits ask before discarding them.

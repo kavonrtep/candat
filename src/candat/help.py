@@ -17,7 +17,7 @@ KEY_HELP = """\
 
 | Key | Action |
 | --- | --- |
-| `C-x C-f` | find file (creates it if missing; `Tab` completes paths) |
+| `C-x C-f` | find file (`Tab` completes paths; lists choices if several) |
 | `C-x C-s` | save buffer |
 | `C-x C-w` | write buffer to another file |
 | `C-x C-q` | toggle read-only for this buffer |
