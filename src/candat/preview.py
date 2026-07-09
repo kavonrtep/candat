@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from textual.app import ComposeResult
 from textual.containers import VerticalScroll
+from textual.css.query import NoMatches
 from textual.widgets import Markdown
 
 
@@ -16,7 +17,11 @@ class MarkdownPreview(VerticalScroll):
         yield Markdown()
 
     async def render_text(self, text: str) -> None:
-        await self.query_one(Markdown).update(text)
+        try:
+            markdown = self.query_one(Markdown)
+        except NoMatches:
+            return  # not mounted yet; a later refresh will render
+        await markdown.update(text)
 
 
 # Preview modes cycled by C-c C-v, applied as CSS classes on the buffer pane.

@@ -83,6 +83,18 @@ KEY_HELP = """\
 
 The table is read-only; big files stream in as you scroll.
 
+## Windows (splits)
+
+| Key | Action |
+| --- | --- |
+| `C-x 3` | split window side by side |
+| `C-x 2` | split window stacked |
+| `C-x o` | move to the next window |
+| `C-x 0` | close the current window |
+| `C-x 1` | close the other windows |
+
+Each window is its own tab group; a buffer lives in one window at a time.
+
 ## Panels & tools
 
 | Key | Action |

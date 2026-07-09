@@ -77,16 +77,18 @@ async def test_terminal_scrollback(bash_shell):
         for ch in "seq 1 100":
             await pilot.press(ch)
         await pilot.press("enter")
-        deadline = 50
-        while deadline and "100" not in "\n".join(terminal._screen.display):
+        # Wait until output has actually scrolled into the scrollback buffer
+        # (the async pty reader captures history a beat after it prints), so
+        # the precondition for paging back is established deterministically.
+        deadline = 80
+        while deadline and not terminal._screen.history.top:
             await asyncio.sleep(0.1)
             await pilot.pause()
             deadline -= 1
-        # Let the prompt repaint finish: any new output snaps history to bottom.
-        await asyncio.sleep(0.5)
-        await pilot.pause()
+        assert terminal._screen.history.top  # scrollback captured
         assert not terminal.scrolled_back
         await pilot.press("shift+pageup")
+        await pilot.pause()
         assert terminal.scrolled_back
         assert terminal.border_title  # history indicator shown
         # Typing snaps back to the live view.

@@ -6,7 +6,7 @@ import asyncio
 import sys
 from pathlib import Path
 
-from textual import on
+from textual import events, on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal
@@ -22,6 +22,7 @@ from .help import HelpScreen
 from .killring import KillRing
 from .nav import NavPanel
 from .pane import BufferPane, pane_of
+from .window import MAX_GROUPS, EditorGroup, group_of
 from .preview import PREVIEW_MODES
 from .projectsearch import SearchResultsScreen, search_project
 from .replace import QueryReplaceScreen
@@ -64,6 +65,23 @@ class CandatApp(App[None]):
     }
     NavPanel {
         border-right: solid $panel;
+    }
+    #groups {
+        width: 1fr;
+        layout: horizontal;
+    }
+    #groups.-stacked {
+        layout: vertical;
+    }
+    EditorGroup {
+        width: 1fr;
+        height: 1fr;
+    }
+    #groups.-split EditorGroup {
+        border: round $panel;
+    }
+    #groups.-split EditorGroup:focus-within {
+        border: round $primary;
     }
     TabbedContent {
         width: 1fr;
@@ -129,11 +147,14 @@ class CandatApp(App[None]):
             self._root = dirs[0]
         self._files = [p for p in paths if not p.is_dir()]
         self._buffer_count = 0
+        self._group_count = 1
+        self._active_group: EditorGroup | None = None
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="workspace"):
             yield NavPanel(self._root)
-            yield TabbedContent()
+            with Horizontal(id="groups"):
+                yield EditorGroup(id="group-1")
         yield TerminalPane()
         yield StatusBar()
 
@@ -147,15 +168,38 @@ class CandatApp(App[None]):
             await self._new_buffer()
         self.set_interval(1.0, self._check_disk_changes)
 
+    # -- windows (editor groups) -------------------------------------------
+
+    def groups(self) -> list[EditorGroup]:
+        return list(self.query(EditorGroup))
+
+    @property
+    def active_group(self) -> EditorGroup:
+        """The focused editor group; falls back to the first if the tracked
+        one was closed."""
+        if self._active_group is not None and self._active_group.is_mounted:
+            return self._active_group
+        self._active_group = self.query(EditorGroup).first()
+        return self._active_group
+
+    @property
+    def tabs(self) -> EditorGroup:
+        """The active group. Kept named `tabs` so buffer operations read the
+        same as before splits existed."""
+        return self.active_group
+
+    @on(events.DescendantFocus)
+    def _track_active_group(self, event: events.DescendantFocus) -> None:
+        group = group_of(event.widget)
+        if group is not None and group is not self._active_group:
+            self._active_group = group
+            self._refresh_status()
+
     # -- buffer bookkeeping ------------------------------------------------
 
     @property
-    def tabs(self) -> TabbedContent:
-        return self.query_one(TabbedContent)
-
-    @property
     def active_pane(self) -> BufferPane | None:
-        return self.tabs.active_pane  # every pane we add is a BufferPane
+        return self.active_group.active_pane  # every pane we add is a BufferPane
 
     @property
     def active_editor(self) -> EditorBuffer | None:
@@ -163,10 +207,12 @@ class CandatApp(App[None]):
         return pane.editor if pane is not None else None
 
     def panes(self) -> list[BufferPane]:
-        return list(self.tabs.query(BufferPane))
+        """Buffers in the active group (for the buffer list)."""
+        return list(self.active_group.query(BufferPane))
 
-    def editors(self) -> list[EditorBuffer]:
-        return [pane.editor for pane in self.panes()]
+    def all_editors(self) -> list[EditorBuffer]:
+        """Every buffer across all groups (for disk-watch, quit, kill)."""
+        return [pane.editor for pane in self.query(BufferPane)]
 
     async def _new_buffer(
         self, path: Path | None = None, load_text: bool = True
@@ -196,11 +242,13 @@ class CandatApp(App[None]):
             return
         # CSV/TSV files open in the table viewer without loading the text.
         is_csv = path.suffix.lower() in CSV_SUFFIXES and path.exists()
-        # Already open? Just switch to it.
-        for pane in self.panes():
+        # Already open in any window? Switch to that window and tab.
+        for pane in self.query(BufferPane):
             if pane.editor.path == path:
-                if pane.id is not None:
-                    self.tabs.active = pane.id
+                group = group_of(pane)
+                if group is not None and pane.id is not None:
+                    group.active = pane.id
+                    self._active_group = group
                 pane.focus_visible()
                 return
         # Reuse a pristine untitled buffer instead of stacking new tabs.
@@ -236,10 +284,11 @@ class CandatApp(App[None]):
 
     def _refresh_tab_label(self, editor: EditorBuffer) -> None:
         pane = pane_of(editor)
-        if pane is None or pane.id is None:
+        group = group_of(editor)
+        if pane is None or pane.id is None or group is None:
             return
         label = editor.display_name + ("*" if editor.modified else "")
-        self.tabs.get_tab(pane.id).label = label
+        group.get_tab(pane.id).label = label
 
     def _refresh_status(self) -> None:
         editor = self.active_editor
@@ -423,7 +472,7 @@ class CandatApp(App[None]):
         place; edited buffers get asked before their edits are discarded."""
         if len(self.screen_stack) > 1:
             return  # don't interrupt prompts, searches, or chords
-        for editor in self.editors():
+        for editor in self.all_editors():
             path = editor.path
             if path is None:
                 continue
@@ -555,10 +604,14 @@ class CandatApp(App[None]):
             self.call_later(self._kill, editor)
 
     async def _kill(self, editor: EditorBuffer) -> None:
+        group = group_of(editor) or self.active_group
         pane = pane_of(editor)
         if pane is not None and pane.id is not None:
-            await self.tabs.remove_pane(pane.id)
-        if not self.editors():
+            await group.remove_pane(pane.id)
+        # Keep every window non-empty: replace a killed last buffer with a
+        # scratch buffer in that same window.
+        if not list(group.query(BufferPane)):
+            self._active_group = group
             await self._new_buffer()
         self._refresh_status()
 
@@ -589,13 +642,13 @@ class CandatApp(App[None]):
         self.push_screen(BufferListScreen(entries, preselect), switched)
 
     def action_other_window(self) -> None:
-        """C-x o: cycle focus tree -> editor -> terminal (when open)."""
-        pane = self.active_pane
+        """C-x o: cycle focus tree -> each window -> terminal (when open)."""
         tree = self.query_one(DirectoryTree)
         terminal = self.query_one(TerminalPane)
         ring: list = [tree]
-        if pane is not None:
-            ring.append(pane.visible_widget)
+        for group in self.groups():
+            if (pane := group.active_pane) is not None:
+                ring.append(pane.visible_widget)
         if terminal.has_class("-open"):
             ring.append(terminal)
         focused = self.focused
@@ -604,6 +657,100 @@ class CandatApp(App[None]):
                 ring[(index + 1) % len(ring)].focus()
                 return
         ring[0].focus()
+
+    # -- windows (split / delete) ------------------------------------------
+
+    def _sync_split_class(self) -> None:
+        self.query_one("#groups").set_class(len(self.groups()) > 1, "-split")
+
+    async def _split(self, stacked: bool) -> None:
+        if len(self.groups()) >= MAX_GROUPS:
+            self.notify(f"At most {MAX_GROUPS} windows", severity="warning", timeout=2)
+            return
+        box = self.query_one("#groups")
+        box.set_class(stacked, "-stacked")
+        self._group_count += 1
+        group = EditorGroup(id=f"group-{self._group_count}")
+        await box.mount(group)
+        self._active_group = group
+        self._sync_split_class()
+        await self._new_buffer()  # a fresh scratch buffer in the new window
+
+    def action_split_window_below(self) -> None:
+        self.call_later(self._split, True)
+
+    def action_split_window_right(self) -> None:
+        self.call_later(self._split, False)
+
+    async def _delete_window(self, victim: EditorGroup) -> None:
+        survivor = next((g for g in self.groups() if g is not victim), None)
+        if survivor is None:
+            return
+        self._active_group = survivor
+        await victim.remove()
+        self._sync_split_class()
+        if (pane := survivor.active_pane) is not None:
+            pane.focus_visible()
+
+    def _unsaved_in(self, group: EditorGroup) -> list[str]:
+        return [
+            p.editor.display_name
+            for p in group.query(BufferPane)
+            if p.editor.modified
+        ]
+
+    def action_delete_window(self) -> None:
+        if len(self.groups()) <= 1:
+            self.notify("Only one window", severity="warning", timeout=2)
+            return
+        victim = self.active_group
+        unsaved = self._unsaved_in(victim)
+
+        def maybe(confirmed: bool | None) -> None:
+            if confirmed:
+                self.call_later(self._delete_window, victim)
+
+        if unsaved:
+            self.push_screen(
+                ConfirmScreen(f"Window has unsaved: {', '.join(unsaved)}. Close anyway?"),
+                maybe,
+            )
+        else:
+            self.call_later(self._delete_window, victim)
+
+    async def _delete_other_windows(self, keep: EditorGroup) -> None:
+        for group in self.groups():
+            if group is not keep:
+                await group.remove()
+        self._active_group = keep
+        self._sync_split_class()
+        if (pane := keep.active_pane) is not None:
+            pane.focus_visible()
+
+    def action_delete_other_windows(self) -> None:
+        if len(self.groups()) <= 1:
+            return
+        keep = self.active_group
+        unsaved = [
+            name
+            for group in self.groups()
+            if group is not keep
+            for name in self._unsaved_in(group)
+        ]
+
+        def maybe(confirmed: bool | None) -> None:
+            if confirmed:
+                self.call_later(self._delete_other_windows, keep)
+
+        if unsaved:
+            self.push_screen(
+                ConfirmScreen(
+                    f"Other windows have unsaved: {', '.join(unsaved)}. Close them?"
+                ),
+                maybe,
+            )
+        else:
+            self.call_later(self._delete_other_windows, keep)
 
     def action_help(self) -> None:
         self.push_screen(HelpScreen())
@@ -692,7 +839,7 @@ class CandatApp(App[None]):
             terminal.focus()
 
     def action_request_quit(self) -> None:
-        unsaved = [e.display_name for e in self.editors() if e.modified]
+        unsaved = [e.display_name for e in self.all_editors() if e.modified]
         if not unsaved:
             self.exit()
             return
