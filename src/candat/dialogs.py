@@ -164,7 +164,10 @@ class PromptScreen(ModalScreen[str | None]):
             yield CompletionList()
             with Horizontal():
                 yield Label(self._prompt)
-                yield input_class(value=self._initial)
+                # Don't select-all on focus: the caret sits at the end of the
+                # pre-filled path so Backspace deletes one character (walking up
+                # a level), instead of wiping the whole selected path.
+                yield input_class(value=self._initial, select_on_focus=False)
                 yield Label("", id="hint")
 
     def show_hint(self, hint: str) -> None:

@@ -96,6 +96,20 @@ async def test_escape_in_list_returns_to_input_without_cancelling(tmp_path):
         assert not isinstance(app.screen, PromptScreen)
 
 
+async def test_prefilled_path_not_selected_backspace_deletes_one(tmp_path):
+    async with open_app() as (app, pilot):
+        await chord(pilot, "ctrl+x", "ctrl+f")
+        inp = app.screen.query_one(Input)
+        initial = inp.value
+        assert initial.endswith("/")
+        # Caret at end, nothing selected — so Backspace deletes a single char
+        # (walking up a level) instead of wiping the whole selected path.
+        assert inp.cursor_position == len(initial)
+        assert inp.selection.is_empty
+        await pilot.press("backspace")
+        assert inp.value == initial[:-1]
+
+
 async def test_no_match_shows_hint(tmp_path):
     root = make_files(tmp_path)
     async with open_app() as (app, pilot):
