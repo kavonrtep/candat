@@ -17,7 +17,7 @@ from .chords import CTRL_C_MAP, CTRL_X_MAP, ChordScreen
 from .commands import CandatCommands
 from .csvview import CSV_SUFFIXES
 from .dialogs import ConfirmScreen, PromptScreen
-from .editor import EditorBuffer
+from .editor import HEAD_LINES, EditorBuffer, human_size
 from .help import HelpScreen
 from .killring import KillRing
 from .nav import NavPanel
@@ -48,8 +48,14 @@ class StatusBar(Static):
         language = editor.language or "text"
         where = str(editor.path) if editor.path else editor.display_name
         wrap = "  wrap" if editor.soft_wrap else ""
+        if editor.binary:
+            big = "  [b]binary[/]"
+        elif editor.truncated:
+            big = "  [b]large: head only[/]"
+        else:
+            big = ""
         self.update(
-            f" {flag} {where}   Ln {row + 1}, Col {col + 1}   {language}{wrap}"
+            f" {flag} {where}   Ln {row + 1}, Col {col + 1}   {language}{wrap}{big}"
             "   [dim]F1 help[/]"
         )
 
@@ -140,6 +146,7 @@ class CandatApp(App[None]):
         super().__init__()
         self.kill_ring = KillRing()
         self.last_search = ""
+        self._crash_log: Path | None = None
         paths = paths or []
         self._root = Path.cwd()
         dirs = [p for p in paths if p.is_dir()]
@@ -233,11 +240,27 @@ class CandatApp(App[None]):
         editor = EditorBuffer(path=None)
         if path is not None and path.exists() and load_text:
             editor.load(path)
+            self._announce_file(editor)
         else:
             editor.path = path
             editor._apply_language()
         await self._add_pane(editor)
         return editor
+
+    def _announce_file(self, editor: EditorBuffer) -> None:
+        if editor.binary:
+            self.notify(
+                f"Binary file, not shown — {human_size(editor.file_size)}",
+                severity="warning",
+                timeout=4,
+            )
+        elif editor.truncated:
+            self.notify(
+                f"Large file ({human_size(editor.file_size)}) — read-only, "
+                f"showing the first {HEAD_LINES:,} lines",
+                severity="warning",
+                timeout=5,
+            )
 
     async def _open_path(self, path: Path) -> None:
         path = path.expanduser().resolve()
@@ -266,6 +289,7 @@ class CandatApp(App[None]):
             editor = current.editor
             if path.exists() and not is_csv:
                 editor.load(path)
+                self._announce_file(editor)
             else:
                 editor.path = path
                 editor._apply_language()
@@ -581,9 +605,17 @@ class CandatApp(App[None]):
         )
 
     def _save(self, editor: EditorBuffer, path: Path | None) -> None:
+        if editor.truncated or editor.binary:
+            self.notify(
+                "This is a large/binary view — saving is disabled so it can't "
+                "overwrite the file with a partial copy.",
+                severity="warning",
+                timeout=4,
+            )
+            return
         try:
             written = editor.save(path)
-        except OSError as error:
+        except (OSError, ValueError) as error:
             self.notify(f"Save failed: {error}", severity="error")
             return
         self._refresh_tab_label(editor)
@@ -879,7 +911,39 @@ class CandatApp(App[None]):
             ConfirmScreen(f"Unsaved: {names}. Quit anyway?"), maybe_quit
         )
 
+    # -- crash handling --------------------------------------------------------
+
+    def _handle_exception(self, error: Exception) -> None:
+        # Textual restores the terminal and stops the app on an unhandled
+        # exception; also persist the traceback so it isn't lost with the TUI.
+        try:
+            self._crash_log = _write_crash_log(error)
+        except Exception:
+            pass
+        super()._handle_exception(error)
+
+
+def _write_crash_log(error: BaseException) -> Path:
+    import datetime
+    import traceback
+
+    directory = Path.home() / ".cache" / "candat"
+    directory.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    log = directory / f"crash-{stamp}.log"
+    log.write_text(
+        "".join(traceback.format_exception(type(error), error, error.__traceback__))
+    )
+    return log
+
 
 def main() -> None:
     paths = [Path(arg) for arg in sys.argv[1:]]
-    CandatApp(paths).run()
+    app = CandatApp(paths)
+    app.run()
+    if app._crash_log is not None:
+        print(
+            f"\ncandat crashed — full traceback saved to {app._crash_log}",
+            file=sys.stderr,
+        )
+        sys.exit(1)

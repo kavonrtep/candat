@@ -104,6 +104,8 @@ the editor's scroll position.
 uv run pytest
 ```
 
+Release history is in [CHANGELOG.md](CHANGELOG.md).
+
 ## Roadmap
 
 1. ~~Skeleton: tree / tabs / status bar / C-x chords / open & save~~
