@@ -93,6 +93,28 @@ async def test_slash_focuses_filter_and_escape_clears(tmp_path):
         assert app.focused is tree
 
 
+async def test_tree_icon_sets_and_cycle(tmp_path, monkeypatch):
+    from candat.nav import TREE_ICON_SETS, resolve_icon_set
+
+    # $CANDAT_TREE_ICONS selects the set; an invalid value falls back to emoji.
+    monkeypatch.setenv("CANDAT_TREE_ICONS", "nerd")
+    assert resolve_icon_set(None) == "nerd"
+    monkeypatch.setenv("CANDAT_TREE_ICONS", "bogus")
+    assert resolve_icon_set(None) == "emoji"
+    monkeypatch.delenv("CANDAT_TREE_ICONS", raising=False)
+
+    root = make_tree(tmp_path)
+    async with open_app([root]) as (app, pilot):
+        tree = app.query_one(FileTree)
+        assert tree.ICON_NODE == TREE_ICON_SETS["emoji"][0]
+        assert tree.cycle_icons() == "nerd"
+        assert tree.ICON_NODE == TREE_ICON_SETS["nerd"][0]
+        # via the M-x action (nerd -> ascii)
+        app.action_cycle_tree_icons()
+        assert tree._icon_set == "ascii"
+        assert tree.ICON_FILE == TREE_ICON_SETS["ascii"][2]
+
+
 async def test_no_match_hides_everything(tmp_path):
     root = make_tree(tmp_path)
     async with open_app([root]) as (app, pilot):

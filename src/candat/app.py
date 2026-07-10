@@ -20,7 +20,7 @@ from .dialogs import ConfirmScreen, PromptScreen
 from .editor import HEAD_LINES, EditorBuffer, human_size
 from .help import HelpScreen
 from .killring import KillRing
-from .nav import NavPanel
+from .nav import FileTree, NavPanel
 from .pane import BufferPane, pane_of
 from .window import MAX_GROUPS, EditorGroup, group_of
 from .preview import PREVIEW_MODES
@@ -800,6 +800,10 @@ class CandatApp(App[None]):
             )
         else:
             self.call_later(self._delete_other_windows, keep)
+
+    def action_cycle_tree_icons(self) -> None:
+        name = self.query_one(FileTree).cycle_icons()
+        self.notify(f"File-tree icons: {name}", timeout=2)
 
     def action_help(self) -> None:
         self.push_screen(HelpScreen())

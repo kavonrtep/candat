@@ -30,16 +30,47 @@ IGNORE_DIRS = {
 }
 MAX_MATCHES = 5000
 
+# Folder / open-folder / file glyphs for the tree. Emoji is the default but
+# render poorly in some terminals (e.g. Konsole); nerd needs a Nerd Font as
+# the terminal font; ascii always works. Pick with $CANDAT_TREE_ICONS or the
+# `cycle-tree-icons` command.
+TREE_ICON_SETS: dict[str, tuple[str, str, str]] = {
+    "emoji": ("📁 ", "📂 ", "📄 "),
+    "nerd": (" ", " ", " "),  # nf-fa folder / folder-open / file
+    "ascii": ("▸ ", "▾ ", "· "),
+}
+DEFAULT_ICONS = "emoji"
+
+
+def resolve_icon_set(name: str | None) -> str:
+    if name is None:
+        name = os.environ.get("CANDAT_TREE_ICONS", DEFAULT_ICONS)
+    return name if name in TREE_ICON_SETS else DEFAULT_ICONS
+
 
 class FileTree(DirectoryTree):
     """A DirectoryTree that can filter to files matching a substring query."""
 
     BINDINGS = [Binding("slash", "focus_filter", "filter", show=False)]
 
-    def __init__(self, path, **kwargs) -> None:
+    def __init__(self, path, icons: str | None = None, **kwargs) -> None:
         super().__init__(path, **kwargs)
         self._query = ""
         self._allowed: set[Path] = set()
+        self._icon_set = DEFAULT_ICONS
+        self.apply_icons(resolve_icon_set(icons))
+
+    def apply_icons(self, name: str) -> None:
+        self._icon_set = name
+        self.ICON_NODE, self.ICON_NODE_EXPANDED, self.ICON_FILE = TREE_ICON_SETS[name]
+
+    def cycle_icons(self) -> str:
+        """Switch to the next icon set live and re-render; returns its name."""
+        order = list(TREE_ICON_SETS)
+        nxt = order[(order.index(self._icon_set) + 1) % len(order)]
+        self.apply_icons(nxt)
+        self.refresh(layout=True)
+        return nxt
 
     def filter_paths(self, paths: Iterable[Path]) -> Iterable[Path]:
         if not self._query:

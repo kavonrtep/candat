@@ -18,6 +18,9 @@ changes).
 - **Crash handler.** An unhandled exception writes a full traceback to
   `~/.cache/candat/crash-<timestamp>.log` and prints its path on exit (Textual
   still restores the terminal).
+- **Selectable file-tree icons** for terminals that render emoji poorly (e.g.
+  Konsole): set `CANDAT_TREE_ICONS=emoji|nerd|ascii`, or switch live with the
+  `cycle-tree-icons` command (`M-x`).
 - This changelog.
 
 ### Changed

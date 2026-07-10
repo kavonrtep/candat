@@ -31,6 +31,7 @@ COMMANDS: list[tuple[str, str, str]] = [
     ("markdown-toggle-preview", "Markdown preview / CSV table view toggle (C-c C-v)", "toggle_preview"),
     ("isearch-forward", "Incremental search forward (C-s)", "isearch_forward"),
     ("isearch-backward", "Incremental search backward (C-r)", "isearch_backward"),
+    ("cycle-tree-icons", "Switch file-tree icons: emoji / nerd / ascii", "cycle_tree_icons"),
     ("help", "Show all keybindings (F1, C-x ?)", "help"),
     ("shell", "Toggle the terminal panel (C-x t)", "toggle_terminal"),
     ("save-buffers-kill-terminal", "Quit candat (C-x C-c)", "request_quit"),
