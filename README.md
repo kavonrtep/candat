@@ -2,6 +2,14 @@
 
 A terminal IDE with emacs keybindings, built on [Textual](https://textual.textualize.io/).
 
+## Demo
+
+[![candat — a full IDE in your terminal](https://raw.githubusercontent.com/kavonrtep/candat/main/docs/brag.gif)](https://github.com/kavonrtep/candat/releases/download/v0.7.0/brag.mp4)
+
+A full IDE in the terminal — split windows on the same file, live markdown
+preview, a CSV viewer, and a real shell inside.
+[▶ Watch with sound (MP4)](https://github.com/kavonrtep/candat/releases/download/v0.7.0/brag.mp4)
+
 ## Install
 
 From [PyPI](https://pypi.org/project/candat/), as a standalone tool
