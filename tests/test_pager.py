@@ -93,6 +93,47 @@ async def test_horizontal_scroll_no_wrap(tmp_path):
         await cm.__aexit__(None, None, None)
 
 
+async def test_search_forward_backward_and_missing(tmp_path):
+    app, pilot, cm, pager = await open_pager(make_file(tmp_path))
+    try:
+        # 5-digit targets are unique (appending a digit exceeds 99999).
+        assert pager.search("line 88888") is True
+        assert pager.top_line == 88888 and pager.match_line == 88888
+        assert pager.search("line 11111", forward=False) is True
+        assert pager.top_line == 11111
+        assert pager.search("no-such-text-zzz") is False
+        assert pager.match_line is None
+    finally:
+        await cm.__aexit__(None, None, None)
+
+
+async def test_search_smart_case(tmp_path):
+    f = tmp_path / "m.txt"
+    lines = [f"line {i}" for i in range(1000)]
+    lines[42] = "UNIQUEMARKER here"
+    f.write_text("\n".join(lines) + "\n")
+    app, pilot, cm, pager = await open_pager(f)
+    try:
+        # lowercase query is case-insensitive, so it matches uppercase content
+        assert pager.search("uniquemarker") is True
+        assert pager.top_line == 42
+    finally:
+        await cm.__aexit__(None, None, None)
+
+
+async def test_goto_percent(tmp_path):
+    app, pilot, cm, pager = await open_pager(make_file(tmp_path))
+    try:
+        pager.goto_percent(50)
+        assert abs(pager.top_line - 50_000) <= 1
+        pager.goto_percent(100)
+        assert pager.top_line == 99_999
+        pager.goto_percent(0)
+        assert pager.top_line == 0
+    finally:
+        await cm.__aexit__(None, None, None)
+
+
 async def test_empty_file(tmp_path):
     f = tmp_path / "empty.txt"
     f.write_text("")

@@ -9,7 +9,9 @@ viewport alone, so a huge file with long lines never needs a full wrap pass.
 
 from __future__ import annotations
 
+import bisect
 import mmap
+import re
 from pathlib import Path
 
 from rich.text import Text
@@ -75,6 +77,8 @@ class TextPager(Widget, can_focus=True):
         self.top_line = 0
         self.top_seg = 0
         self.hoffset = 0
+        self._last_query = ""
+        self.match_line: int | None = None
 
     # -- lifecycle -----------------------------------------------------------
 
@@ -228,6 +232,67 @@ class TextPager(Widget, can_focus=True):
         self.top_line = max(0, min(line, self._index.line_count - 1))
         self.top_seg = 0
         self.refresh()
+
+    def goto_percent(self, pct: float) -> None:
+        pct = max(0.0, min(100.0, pct))
+        self.goto_line(int((self._index.line_count - 1) * pct / 100))
+
+    # -- streaming search ----------------------------------------------------
+
+    def _byte_to_line(self, offset: int) -> int:
+        """The line number containing a byte offset, via the sparse index."""
+        assert self._mm is not None
+        block = max(0, bisect.bisect_right(self._index.offsets, offset) - 1)
+        line = block * SPARSE_STEP
+        pos = self._index.offsets[block]
+        find = self._mm.find
+        while True:
+            nl = find(b"\n", pos)
+            if nl == -1 or nl >= offset:
+                return line
+            pos = nl + 1
+            line += 1
+
+    def _find_backward(self, pattern: re.Pattern, before: int) -> re.Match | None:
+        """Last match starting before `before` (a single lazy forward scan)."""
+        assert self._mm is not None
+        found = None
+        for match in pattern.finditer(self._mm):
+            if match.start() >= before:
+                break
+            found = match
+        return found
+
+    def search(self, query: str, forward: bool = True) -> bool:
+        self._last_query = query
+        return self.search_next(forward)
+
+    def search_next(self, forward: bool = True) -> bool:
+        """Move to the next/previous line matching the last query (smart case,
+        wraps around). Returns whether a match was found."""
+        if self._mm is None or not self._last_query:
+            return False
+        query = self._last_query
+        flags = re.IGNORECASE if query == query.lower() else 0
+        pattern = re.compile(re.escape(query.encode("utf-8", "replace")), flags)
+        cursor = self._line_start(self.top_line)
+        if forward:
+            match = pattern.search(self._mm, cursor + 1) or pattern.search(self._mm, 0)
+        else:
+            match = self._find_backward(pattern, cursor) or self._find_backward(
+                pattern, len(self._mm)
+            )
+        if match is None:
+            self.match_line = None
+            self.app.notify(f"Not found: {query}", severity="warning", timeout=2)
+            return False
+        line = self._byte_to_line(match.start())
+        self.match_line = line
+        self.top_line = line
+        self.top_seg = 0
+        self.hoffset = 0
+        self.refresh()
+        return True
 
     def toggle_wrap(self) -> bool:
         self._wrap = not self._wrap
