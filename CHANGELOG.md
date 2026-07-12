@@ -24,6 +24,9 @@ changes).
   from the buffer text, so the table always matches what you see. A
   `table_suffixes` config key extends which files open as tables
   automatically, and `M-x table-view` forces the table even on markdown.
+  It works from the large-file pager too: both views stream, so `C-c C-v`
+  flips a huge delimited file between pager and table (leaving the table on
+  a large file returns to the pager, never a gigabyte editor load).
 - **macOS support.** The code was already POSIX-generic; CI now tests on
   macOS as well as Linux across Python 3.10 and 3.13.
 

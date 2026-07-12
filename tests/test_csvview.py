@@ -305,6 +305,30 @@ async def test_modified_buffer_tables_from_text(tmp_path):
         assert pane.csv.table.row_count == 2  # both data rows, from the buffer
 
 
+async def test_pager_and_table_round_trip_on_large_file(tmp_path):
+    """A large delimited file opens in the pager; C-c C-v switches to the
+    (streaming) table view, and C-c C-v again returns to the pager — never
+    loading the whole file into the editor."""
+    big = tmp_path / "huge_regions.txt"
+    line = "chr1\t%d\t%d\tfeature%d\n"
+    with big.open("w") as f:
+        for i in range(450_000):  # ~13 MB, over the pager threshold
+            f.write(line % (i, i + 100, i))
+    async with open_app([big]) as (app, pilot):
+        pane = app.tabs.active_pane
+        await pilot.pause()
+        assert pane.is_pager  # routed to the pager by size
+        await chord(pilot, "ctrl+c", "ctrl+v")  # pager -> table
+        assert not pane.is_pager and pane.has_class("-csv-table")
+        table = pane.csv.table
+        assert str(table.get_row_at(0)[0]) == "chr1"
+        assert len(pane.csv._columns) == 4  # tab-sniffed
+        assert app.active_editor.text == ""  # editor never loaded the file
+        await chord(pilot, "ctrl+c", "ctrl+v")  # table -> back to the pager
+        assert pane.is_pager and not pane.has_class("-csv-table")
+        assert app.active_editor.text == ""
+
+
 async def test_table_suffixes_config_routes_on_open(tmp_path):
     from candat import config
 

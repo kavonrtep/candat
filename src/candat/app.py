@@ -18,7 +18,13 @@ from .chords import CTRL_C_MAP, CTRL_X_MAP, ChordScreen
 from .commands import CandatCommands
 from .csvview import CSV_SUFFIXES  # noqa: F401 — default set; config can extend
 from .dialogs import ConfirmScreen, PromptScreen
-from .editor import HEAD_LINES, EditorBuffer, classify_file, human_size
+from .editor import (
+    HEAD_LINES,
+    LARGE_FILE_BYTES,
+    EditorBuffer,
+    classify_file,
+    human_size,
+)
 from .help import HelpScreen
 from .killring import KillRing
 from .nav import FileTree, NavPanel
@@ -511,9 +517,29 @@ class CandatApp(App[None]):
         """Switch a buffer between table view and text. Clean file-backed
         buffers stream from disk (cheap for huge files); a modified or
         untitled buffer is parsed from its own text, so the table always
-        shows what you see."""
+        shows what you see. From the pager, the table streams the same file;
+        leaving the table on a large file returns to the pager rather than
+        loading gigabytes into the editor."""
         editor = pane.editor
+        if pane.is_pager:
+            # Pager -> table: both views stream, so size is no obstacle.
+            path = pane.pager.path
+            if path is None:
+                return
+            pane.leave_pager_mode()
+            pane.enter_csv_mode(path)
+            self._refresh_status()
+            return
         if pane.is_csv:
+            size = 0
+            if editor.path is not None and editor.path.exists():
+                size = editor.path.stat().st_size
+            if editor.disk_mtime is None and size > LARGE_FILE_BYTES:
+                # Table -> pager for a large file the editor never loaded.
+                pane.leave_csv_mode()
+                self._enter_pager(pane, editor.path)
+                return
+
             def to_text() -> None:
                 if (
                     editor.path is not None
@@ -526,9 +552,6 @@ class CandatApp(App[None]):
                 editor.focus()
                 self._refresh_status()
 
-            size = 0
-            if editor.path is not None and editor.path.exists():
-                size = editor.path.stat().st_size
             if editor.disk_mtime is None and size > 5_000_000:
                 def maybe(confirmed: bool | None) -> None:
                     if confirmed:
@@ -564,11 +587,11 @@ class CandatApp(App[None]):
     def action_toggle_preview(self) -> None:
         """C-c C-v: the buffer's alternate view — markdown cycles its preview,
         everything else toggles the table view (any delimiter; `d` inside the
-        table re-picks it)."""
+        table re-picks it). Works from the pager too: both views stream."""
         pane = self.active_pane
-        if pane is None or pane.is_pager:
+        if pane is None:
             return
-        if pane.is_csv or pane.editor.language != "markdown":
+        if pane.is_pager or pane.is_csv or pane.editor.language != "markdown":
             self._toggle_csv_view(pane)
             return
         next_mode = PREVIEW_MODES[
@@ -580,7 +603,7 @@ class CandatApp(App[None]):
         """M-x table-view: toggle the table even where C-c C-v means
         something else (a markdown buffer)."""
         pane = self.active_pane
-        if pane is None or pane.is_pager:
+        if pane is None:
             return
         self._toggle_csv_view(pane)
 

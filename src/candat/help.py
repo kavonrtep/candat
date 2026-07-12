@@ -77,7 +77,9 @@ KEY_HELP = """\
 `.csv` / `.tsv` files open as a table automatically (extend with
 `table_suffixes` in the config). Any other buffer — a `.tab`, `.gff`, a log,
 even an unsaved one — switches to a table with `C-c C-v`; the delimiter is
-auto-detected and `d` re-picks it if the guess was wrong.
+auto-detected and `d` re-picks it if the guess was wrong. This works from
+the large-file pager too: both views stream, so `C-c C-v` flips a huge
+delimited file between pager and table without ever loading it whole.
 
 | Key | Action |
 | --- | --- |
