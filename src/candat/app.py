@@ -28,7 +28,7 @@ from .editor import (
 )
 from .help import HelpScreen
 from .killring import KillRing
-from .nav import FileTree, NavPanel
+from .nav import DEFAULT_TREE_WIDTH, MIN_TREE_WIDTH, FileTree, NavPanel, TreeSplitter
 from .pager import TextPager
 from .pane import BufferPane, pane_of
 from .window import MAX_GROUPS, EditorGroup, group_of
@@ -82,9 +82,7 @@ class CandatApp(App[None]):
     #workspace {
         height: 1fr;
     }
-    NavPanel {
-        border-right: solid $panel;
-    }
+    /* The TreeSplitter draws the divider (and is the drag handle). */
     #groups {
         width: 1fr;
         layout: horizontal;
@@ -194,6 +192,7 @@ class CandatApp(App[None]):
     def compose(self) -> ComposeResult:
         with Horizontal(id="workspace"):
             yield NavPanel(self._root)
+            yield TreeSplitter()
             with Horizontal(id="groups"):
                 yield EditorGroup(id="group-1")
         yield TerminalPane()
@@ -1204,6 +1203,28 @@ class CandatApp(App[None]):
     def action_cycle_tree_icons(self) -> None:
         name = self.query_one(FileTree).cycle_icons()
         self.notify(f"File-tree icons: {name}", timeout=2)
+
+    def set_tree_width(self, cells: int, persist: bool = True) -> int:
+        """Resize the file-tree panel (drag splitter, C-x { / C-x }), clamped
+        to [MIN_TREE_WIDTH, half the screen]; persisted to the config."""
+        cells = max(MIN_TREE_WIDTH, min(int(cells), max(MIN_TREE_WIDTH, self.size.width // 2)))
+        self.query_one(NavPanel).styles.width = cells
+        if persist:
+            config.save_setting("tree_width", cells)
+        return cells
+
+    def _nudge_tree(self, delta: int) -> None:
+        current = self.query_one(NavPanel).outer_size.width
+        width = self.set_tree_width(current + delta)
+        self.notify(f"Tree width: {width}", timeout=1.5)
+
+    def action_grow_tree(self) -> None:
+        """C-x }: widen the file tree (enlarge-window-horizontally)."""
+        self._nudge_tree(4)
+
+    def action_shrink_tree(self) -> None:
+        """C-x {: narrow the file tree (shrink-window-horizontally)."""
+        self._nudge_tree(-4)
 
     def action_help(self) -> None:
         self.push_screen(HelpScreen())

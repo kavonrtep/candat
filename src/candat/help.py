@@ -145,6 +145,7 @@ shown up to their first 64 KB (marked with `…`).
 | `Shift+PgUp/PgDn` | terminal scrollback (typing snaps back) |
 | `C-x o` | cycle focus: tree → editor → terminal |
 | `/` (in file tree) | filter the tree by path; `Esc` clears |
+| `C-x {` / `C-x }` | narrow / widen the file tree (or drag the divider; double-click resets) |
 | `C-c C-v` | alternate view: markdown preview cycle, or table view of any other buffer |
 | `M-x`, `Ctrl+Shift+P` | command palette |
 | `F1`, `C-x ?` | this help |

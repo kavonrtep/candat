@@ -7,6 +7,13 @@ covered by the compatibility promise.
 
 ## [Unreleased]
 
+### Added
+- **Resizable file tree.** `C-x {` / `C-x }` narrow/widen the panel (emacs's
+  shrink/enlarge-window-horizontally), the divider between tree and editors
+  is a drag handle (double-click resets to the default width), and the chosen
+  width persists in the config (`tree_width`). Also `M-x tree-wider` /
+  `tree-narrower`.
+
 ## [1.0.0] - 2026-07-12
 
 The 1.0 milestone is about trust, not features: saves can no longer corrupt

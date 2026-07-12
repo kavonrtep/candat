@@ -78,6 +78,7 @@ Passing a directory sets the file-tree root; files are opened in buffers.
 | `C-x t` | toggle terminal panel (keys pass through raw; only `C-x` is reserved) |
 | `Shift+PgUp/PgDn` | terminal scrollback (typing snaps back) |
 | `C-c C-v` | alternate view: markdown preview cycle, or table view of the buffer |
+| `C-x {` / `C-x }` | narrow / widen the file tree (or drag the divider) |
 | `M-x`, `Ctrl+Shift+P` | command palette |
 | `C-g` / `Esc` | cancel chord / prompt / search / mark |
 
@@ -126,6 +127,7 @@ The file-tree icons are emoji by default; if your terminal renders them poorly
 
 ```toml
 tree_icons = "emoji"     # or "nerd" / "ascii"; cycle-tree-icons saves here
+tree_width = 32          # file-tree width; C-x {/} and the splitter save here
 pager_wrap = false       # start the large-file pager with soft wrap on
 tabstop = 8              # tab width in the pager
 restore_session = true   # reopen last session's files (see below)

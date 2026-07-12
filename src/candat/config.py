@@ -7,6 +7,8 @@ Recognised keys:
 
 - ``tree_icons``: file-tree icon set — "emoji", "nerd" or "ascii"
   (the ``CANDAT_TREE_ICONS`` environment variable overrides this)
+- ``tree_width``: file-tree panel width in cells (``C-x {`` / ``C-x }`` and
+  the drag splitter save their result here)
 - ``pager_wrap``: whether the large-file pager starts with soft wrap on
 - ``tabstop``: tab width in the pager
 - ``restore_session``: reopen the previous session's files when candat is
@@ -27,6 +29,7 @@ except ModuleNotFoundError:  # Python 3.10: tomllib landed in 3.11
 
 DEFAULTS: dict[str, object] = {
     "tree_icons": "emoji",
+    "tree_width": 32,
     "pager_wrap": False,
     "tabstop": 8,
     "restore_session": True,

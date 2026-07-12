@@ -34,6 +34,8 @@ COMMANDS: list[tuple[str, str, str]] = [
     ("isearch-forward", "Incremental search forward (C-s)", "isearch_forward"),
     ("isearch-backward", "Incremental search backward (C-r)", "isearch_backward"),
     ("cycle-tree-icons", "Switch file-tree icons: emoji / nerd / ascii", "cycle_tree_icons"),
+    ("tree-wider", "Widen the file-tree panel (C-x })", "grow_tree"),
+    ("tree-narrower", "Narrow the file-tree panel (C-x {)", "shrink_tree"),
     ("help", "Show all keybindings (F1, C-x ?)", "help"),
     ("shell", "Toggle the terminal panel (C-x t)", "toggle_terminal"),
     ("save-buffers-kill-terminal", "Quit candat (C-x C-c)", "request_quit"),

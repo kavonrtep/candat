@@ -4,7 +4,7 @@ import pytest
 from textual.widgets import Input
 
 from candat.nav import FileTree, NavPanel
-from helpers import open_app
+from helpers import chord, open_app
 
 pytestmark = pytest.mark.asyncio
 
@@ -119,6 +119,54 @@ async def test_tree_icon_sets_and_cycle(tmp_path, monkeypatch):
 
     assert 'tree_icons = "ascii"' in config.config_path().read_text()
     assert resolve_icon_set(None) == "ascii"
+
+
+async def test_tree_resize_keyboard_and_persist(tmp_path):
+    from candat import config
+    from candat.nav import MIN_TREE_WIDTH, NavPanel
+
+    root = make_tree(tmp_path)
+    async with open_app([root]) as (app, pilot):
+        nav = app.query_one(NavPanel)
+        assert nav.outer_size.width == 32  # the default
+        await chord(pilot, "ctrl+x", "right_curly_bracket")  # C-x }
+        assert nav.outer_size.width == 36
+        assert "tree_width = 36" in config.config_path().read_text()
+        await chord(pilot, "ctrl+x", "left_curly_bracket")  # C-x {
+        await chord(pilot, "ctrl+x", "left_curly_bracket")
+        assert nav.outer_size.width == 28
+        # clamped at the minimum, never collapses to nothing
+        for _ in range(10):
+            await chord(pilot, "ctrl+x", "left_curly_bracket")
+        assert nav.outer_size.width == MIN_TREE_WIDTH
+
+    # a fresh app starts at the persisted width
+    async with open_app([root]) as (app, pilot):
+        assert app.query_one(NavPanel).outer_size.width == MIN_TREE_WIDTH
+
+
+async def test_tree_resize_splitter_drag_and_reset(tmp_path):
+    from types import SimpleNamespace
+
+    from candat.nav import DEFAULT_TREE_WIDTH, NavPanel, TreeSplitter
+
+    root = make_tree(tmp_path)
+    async with open_app([root]) as (app, pilot):
+        nav = app.query_one(NavPanel)
+        splitter = app.query_one(TreeSplitter)
+        # drag: press, move to column 45, release (persists)
+        splitter.on_mouse_down(SimpleNamespace(stop=lambda: None))
+        splitter.on_mouse_move(SimpleNamespace(screen_x=45))
+        await pilot.pause()
+        assert nav.styles.width.value == 45
+        splitter.on_mouse_up(SimpleNamespace(stop=lambda: None, screen_x=45))
+        from candat import config
+
+        assert config.load()["tree_width"] == 45
+        # double-click resets to the default
+        splitter.on_click(SimpleNamespace(stop=lambda: None, chain=2))
+        await pilot.pause()
+        assert nav.styles.width.value == DEFAULT_TREE_WIDTH
 
 
 async def test_no_match_hides_everything(tmp_path):

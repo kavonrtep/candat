@@ -12,10 +12,11 @@ import os
 from pathlib import Path
 from typing import Iterable
 
-from textual import on
+from textual import events, on
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
+from textual.widget import Widget
 from textual.widgets import DirectoryTree, Input
 
 from . import config
@@ -142,13 +143,59 @@ class FileTree(DirectoryTree):
             self.parent.query_one(Input).focus()
 
 
+MIN_TREE_WIDTH = 16
+DEFAULT_TREE_WIDTH = 32
+
+
+class TreeSplitter(Widget):
+    """A one-cell grab column between the file tree and the editors: drag to
+    resize the tree, double-click to reset its width."""
+
+    DEFAULT_CSS = """
+    TreeSplitter {
+        width: 1;
+        background: $panel;
+    }
+    TreeSplitter:hover {
+        background: $primary;
+    }
+    """
+
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._dragging = False
+
+    def on_mouse_down(self, event: events.MouseDown) -> None:
+        event.stop()
+        self._dragging = True
+        self.capture_mouse()
+
+    def on_mouse_move(self, event: events.MouseMove) -> None:
+        if not self._dragging:
+            return
+        # The tree starts at x=0, so the pointer's screen column IS the width.
+        self.app.set_tree_width(event.screen_x, persist=False)
+
+    def on_mouse_up(self, event: events.MouseUp) -> None:
+        if not self._dragging:
+            return
+        event.stop()
+        self._dragging = False
+        self.capture_mouse(False)
+        self.app.set_tree_width(event.screen_x, persist=True)
+
+    def on_click(self, event: events.Click) -> None:
+        if event.chain == 2:  # double click: back to the default width
+            event.stop()
+            self.app.set_tree_width(DEFAULT_TREE_WIDTH, persist=True)
+
+
 class NavPanel(Vertical):
     """File tree plus its filter input."""
 
     DEFAULT_CSS = """
     NavPanel {
         width: 32;
-        max-width: 40%;
     }
     NavPanel Input#tree-filter {
         height: 1;
@@ -166,6 +213,11 @@ class NavPanel(Vertical):
         super().__init__(**kwargs)
         self._root = root
         self._debounce = None
+
+    def on_mount(self) -> None:
+        width = config.load()["tree_width"]
+        if isinstance(width, int) and width >= MIN_TREE_WIDTH:
+            self.styles.width = width
 
     def compose(self) -> ComposeResult:
         yield Input(placeholder="Filter files  (/)", id="tree-filter")

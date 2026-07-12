@@ -33,6 +33,8 @@ CTRL_X_MAP: dict[str, tuple[str, str]] = {
     "t": ("toggle_terminal", "toggle terminal"),
     "g": ("project_search", "search project"),
     "w": ("toggle_soft_wrap", "toggle soft wrap"),
+    "right_curly_bracket": ("grow_tree", "widen file tree"),
+    "left_curly_bracket": ("shrink_tree", "narrow file tree"),
     "question_mark": ("help", "help"),
 }
 
