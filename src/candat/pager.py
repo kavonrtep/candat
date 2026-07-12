@@ -67,6 +67,11 @@ class TextPager(Widget, can_focus=True):
         Binding("left,ctrl+b", "scroll_h(-8)", "left", show=False),
         Binding("n", "search_next(1)", "next match", show=False),
         Binding("N", "search_next(-1)", "prev match", show=False),
+        # Search / goto prompts live on the app (they push a minibuffer); the
+        # pager only has focus, so bind the keys here and delegate up.
+        Binding("ctrl+s,slash", "app.isearch_forward", "search", show=False),
+        Binding("ctrl+r,question_mark", "app.isearch_backward", "search back", show=False),
+        Binding("alt+g", "app.pager_goto_line", "goto line", show=False),
     ]
 
     class Moved(Message):

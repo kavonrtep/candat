@@ -16,7 +16,8 @@ changes).
   with bounded memory and full navigation: scroll / page / `g` / `G`, wrap
   toggle (`C-x w`, off by default — long lines truncate with a `›` marker and
   scroll horizontally), streaming search (`C-s` / `C-r`, smart case, wraps)
-  with `n` / `N` to repeat. Binary files still open as a read-only placeholder.
+  with `n` / `N` to repeat, and go-to-line (`M-g`). Binary files still open
+  as a read-only placeholder.
 
 ### Fixed
 - Cycling file-tree icons (`cycle-tree-icons`) now updates the glyphs

@@ -97,6 +97,22 @@ C-x 2 / C-x 3 open the current buffer in the new window as a linked view:
 same file and edits, but its own cursor and scroll — inspect or edit two
 places at once. C-x C-f / C-x b in a window can point it at another file.
 
+## Large files (pager)
+
+Text files over 10 MB open in a read-only `less`-style pager (not loaded into
+the editor). Binary files show a placeholder.
+
+| Key | Action |
+| --- | --- |
+| arrows, `C-n` / `C-p` | line down / up |
+| PgDn / PgUp, `C-v` / `M-v` | page down / up |
+| `g` / `G` | first / last line |
+| ← / →, `C-b` / `C-f` | scroll left / right (when not wrapped) |
+| `C-x w` | toggle wrap (off by default; truncated lines show `›`) |
+| `C-s` / `C-r` (or `/` / `?`) | search forward / backward (smart case) |
+| `n` / `N` | repeat search forward / backward |
+| `M-g` | go to line |
+
 ## Panels & tools
 
 | Key | Action |

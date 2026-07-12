@@ -115,7 +115,10 @@ class BufferPane(TabPane):
     def enter_pager_mode(self, path: Path) -> None:
         self.pager.load(path)
         self.add_class(PAGER_CLASS)
-        self.pager.focus()
+        # Focus after the class makes the pager display:block — focusing a
+        # still-hidden widget is a no-op, leaving the editor focused (so C-s
+        # would hit the editor's isearch instead of the pager's).
+        self.call_after_refresh(self.pager.focus)
 
 
 def pane_of(widget: Widget | None) -> BufferPane | None:

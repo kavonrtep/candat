@@ -149,12 +149,30 @@ async def test_large_file_routes_to_pager(tmp_path):
         assert pane.editor.text == ""  # the file was NOT loaded into the editor
         assert pager.line_count == 150_000
         assert app.active_pane.visible_widget is pager
+        assert app.focused is pager  # so pager keys (C-s, g/G, …) reach it
         # C-x w toggles the pager's wrap
         await chord(pilot, "ctrl+x", "w")
         assert pager.wrap
         # navigation works and reports position
         pager.action_scroll_lines(5)
         assert pager.top_line == 5
+
+        # C-s opens the pager's search prompt (not the editor's isearch)
+        from candat.dialogs import PromptScreen
+        from textual.widgets import Input
+
+        await pilot.press("ctrl+s")
+        await pilot.pause()
+        assert isinstance(app.screen, PromptScreen)
+        await pilot.press("escape")
+        await pilot.pause()
+        # M-g jumps to a line
+        await pilot.press("alt+g")
+        await pilot.pause()
+        app.screen.query_one(Input).value = "1000"
+        await pilot.press("enter")
+        await pilot.pause()
+        assert pager.top_line == 999
 
 
 async def test_empty_file(tmp_path):

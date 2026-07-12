@@ -622,6 +622,19 @@ class CandatApp(App[None]):
         self.push_screen(PromptScreen(prompt), run)
         return True
 
+    def action_pager_goto_line(self) -> None:
+        pane = self.active_pane
+        if pane is None or not pane.is_pager:
+            return
+        pager = pane.pager
+
+        def run(value: str | None) -> None:
+            if value and value.strip().lstrip("-").isdigit():
+                pager.goto_line(int(value.strip()) - 1)  # 1-based in the prompt
+                self._refresh_status()
+
+        self.push_screen(PromptScreen(f"Go to line (1-{pager.line_count}):"), run)
+
     def action_find_file(self) -> None:
         editor = self.active_editor
         base = editor.path.parent if editor and editor.path else self._root
