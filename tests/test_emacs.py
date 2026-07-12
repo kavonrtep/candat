@@ -148,6 +148,29 @@ async def test_isearch_forward_and_accept():
         assert app.last_search == "beta"
 
 
+async def test_isearch_highlights_all_visible_matches():
+    async with editor_with_text("alpha beta\ngamma beta end\nno match\n") as (
+        app,
+        pilot,
+        editor,
+    ):
+        def match_spans() -> int:
+            return sum(
+                sum(1 for s in editor.get_line(i).spans if s.style == editor.SEARCH_STYLE)
+                for i in range(editor.document.line_count)
+            )
+
+        assert match_spans() == 0
+        await pilot.press("ctrl+s")
+        await pilot.press("b", "e", "t", "a")
+        await pilot.pause()
+        assert match_spans() == 2  # both 'beta' occurrences highlighted, not just one
+        # Lazy-highlight clears when the search ends.
+        await pilot.press("enter")
+        await pilot.pause()
+        assert match_spans() == 0
+
+
 async def test_isearch_cancel_restores_origin():
     async with editor_with_text("alpha beta\n") as (app, pilot, editor):
         await pilot.press("ctrl+s")

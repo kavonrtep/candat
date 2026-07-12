@@ -61,6 +61,8 @@ class ISearchScreen(ModalScreen[None]):
         state = "Failing " if self._failed else ("Wrapped " if self._wrapped else "")
         label.update(f"{state}I-search{direction}: {self._query}")
         label.set_class(self._failed, "failing")
+        # Highlight every occurrence in view while the search is live.
+        self._editor.set_search_highlight(self._query)
 
     def _goto(self, start_index: int, length: int) -> None:
         document = self._editor.document
@@ -153,6 +155,7 @@ class ISearchScreen(ModalScreen[None]):
             self._query = self._query[:-1]
             self._extend_search()
         elif event.key == "ctrl+g":
+            self._editor.clear_search_highlight()
             self._editor.selection = self._origin
             self._editor.scroll_cursor_visible()
             self.dismiss()
@@ -165,6 +168,8 @@ class ISearchScreen(ModalScreen[None]):
     def _accept(self) -> None:
         if self._query:
             self.app.last_search = self._query
+        # Lazy-highlight is only shown while searching; drop it on exit.
+        self._editor.clear_search_highlight()
         # Leave point where the search ended; set the (inactive) mark at the
         # origin, as emacs does.
         cur = self._editor.point

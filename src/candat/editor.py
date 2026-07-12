@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from rich.style import Style
 from textual import events
 from textual.binding import Binding
 from textual.widgets import TextArea
@@ -257,7 +258,48 @@ class EditorBuffer(TextArea):
         # Other views of the same buffer (C-x 2 / C-x 3 of the same file).
         self.links: list["EditorBuffer"] = []
         self._syncing = False
+        # Incremental-search highlight: every occurrence of this query in the
+        # visible lines is styled (the current match still rides the selection).
+        self._search_highlight = ""
         self._apply_language()
+
+    # -- search highlight ----------------------------------------------------
+
+    SEARCH_STYLE = Style(bgcolor="yellow", color="black")
+
+    def set_search_highlight(self, query: str) -> None:
+        """Highlight every occurrence of `query` in the visible area (live,
+        during isearch). Pass '' to clear."""
+        if query == self._search_highlight:
+            return
+        self._search_highlight = query
+        # The line cache key doesn't know about the query, so stale strips
+        # would hide the change — drop them and repaint.
+        self._line_cache.clear()
+        self.refresh()
+
+    def clear_search_highlight(self) -> None:
+        self.set_search_highlight("")
+
+    def get_line(self, line_index: int):  # type: ignore[override]
+        text = super().get_line(line_index)
+        query = self._search_highlight
+        if not query:
+            return text
+        # Smart case, matching isearch: an all-lowercase query folds case.
+        fold = query == query.lower()
+        line = text.plain
+        hay = line.lower() if fold else line
+        needle = query.lower() if fold else query
+        n = len(needle)
+        start = 0
+        while n:
+            idx = hay.find(needle, start)
+            if idx == -1:
+                break
+            text.stylize(self.SEARCH_STYLE, idx, idx + n)
+            start = idx + n
+        return text
 
     @property
     def display_name(self) -> str:
