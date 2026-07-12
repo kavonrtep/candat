@@ -75,7 +75,7 @@ KEY_HELP = """\
 
 | Key | Action |
 | --- | --- |
-| `/` | search rows (regex); matches are highlighted in the cells |
+| `/` | search rows (literal, smart case — same as everywhere); matches are highlighted in the cells |
 | `C-s` / `n` | next match |
 | `C-g` / `Esc` | cancel search (clear the highlight) |
 | `&` | filter rows by regex (empty clears) |
@@ -143,7 +143,9 @@ CSV views track the file in place). The status bar shows `--` clean,
 
 `~/.config/candat/config.toml` (XDG aware): `tree_icons` ("emoji" /
 "nerd" / "ascii"; `cycle-tree-icons` saves your choice), `pager_wrap`
-(start the pager wrapped), `tabstop` (tab width in the pager). The
+(start the pager wrapped), `tabstop` (tab width in the pager), and
+`restore_session` (start `candat` with no files → the previous
+session's files reopen, with cursors and the active tab). The
 `CANDAT_TREE_ICONS` environment variable overrides the config.
 
 *Press `q`, `Esc`, or `C-g` to close this help.*

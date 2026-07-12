@@ -302,12 +302,12 @@ class CsvViewer(Vertical):
         except re.error:
             return None
 
-    def search(self, pattern: str) -> None:
-        regex = self._compile(pattern)
-        if regex is None:
-            self.app.notify(f"Bad regex: {pattern}", severity="error", timeout=2)
-            return
-        self._last_search = regex
+    def search(self, term: str) -> None:
+        # Literal with smart case — the same dialect as the editor's isearch
+        # and the pager, so `/` feels identical everywhere. (The `&` row
+        # filter stays regex; it's labelled as such.)
+        flags = re.IGNORECASE if term == term.lower() else 0
+        self._last_search = re.compile(re.escape(term), flags)
         self._restyle_loaded()  # highlight matches in the rows already on screen
         self.search_next()
 
@@ -373,7 +373,7 @@ class CsvViewer(Vertical):
             if pattern:
                 self.search(pattern)
 
-        self.app.push_screen(PromptScreen("Search table (regex):"), do_search)
+        self.app.push_screen(PromptScreen("Search table:"), do_search)
 
     def on_key(self, event: events.Key) -> None:
         from .dialogs import PromptScreen

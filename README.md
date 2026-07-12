@@ -101,8 +101,9 @@ partial view can never overwrite the real file.
 `.csv` and `.tsv` files open in a table viewer (inspired by
 [csvlens](https://github.com/YS-L/csvlens)): a sticky header, row cursor,
 and original file line numbers in the gutter. Large files stream in as you
-scroll rather than loading whole. In the table: `/` (or `C-s`) searches with
-the matched text highlighted in the cells (`Esc` clears), `n` repeats, `&`
+scroll rather than loading whole. In the table: `/` (or `C-s`) searches —
+literal with smart case, the same dialect as everywhere else — with the
+matched text highlighted in the cells (`Esc` clears), `n` repeats, `&`
 filters rows by regex, `g`/`G` jump to top/bottom. `C-c C-v` switches
 between the table and the raw text. The table is read-only.
 
@@ -115,10 +116,16 @@ The file-tree icons are emoji by default; if your terminal renders them poorly
 `~/.config/candat/config.toml` (XDG aware), all keys optional:
 
 ```toml
-tree_icons = "emoji"   # or "nerd" / "ascii"; cycle-tree-icons saves here
-pager_wrap = false     # start the large-file pager with soft wrap on
-tabstop = 8            # tab width in the pager
+tree_icons = "emoji"     # or "nerd" / "ascii"; cycle-tree-icons saves here
+pager_wrap = false       # start the large-file pager with soft wrap on
+tabstop = 8              # tab width in the pager
+restore_session = true   # reopen last session's files (see below)
 ```
+
+Starting candat without file arguments reopens the files you had open the
+last time you quit in that directory — tabs, cursor positions, scroll, and
+the active buffer (per project root, kept in `~/.local/state/candat/`).
+Passing files on the command line skips the restore.
 
 Crash logs (including hard faults caught by `faulthandler`) land in
 `~/.cache/candat/`.

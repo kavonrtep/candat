@@ -21,9 +21,10 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def isolated_config(tmp_path_factory, monkeypatch):
-    """Keep tests away from the user's real config (and from writing to it —
-    cycle-tree-icons persists its choice)."""
+    """Keep tests away from the user's real config and state (cycle-tree-icons
+    persists its choice; quitting saves the session)."""
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path_factory.mktemp("xdg")))
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path_factory.mktemp("state")))
     monkeypatch.delenv("CANDAT_TREE_ICONS", raising=False)
 
 

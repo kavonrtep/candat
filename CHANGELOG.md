@@ -7,6 +7,19 @@ changes).
 
 ## [Unreleased]
 
+### Added
+- **Session restore.** Starting `candat` without file arguments reopens the
+  files you had open the last time you quit in that directory — tab order,
+  cursor positions, scroll, and the active buffer, kept per project root in
+  `~/.local/state/candat/sessions.json` (the 50 most recent roots). Passing
+  files on the command line skips the restore; `restore_session = false` in
+  the config turns it off.
+
+### Changed
+- **One search dialect everywhere.** The CSV table's `/` and `C-s` search is
+  now literal with smart case, matching the editor's isearch and the pager,
+  instead of regex. (The `&` row filter is still regex, as labelled.)
+
 ## [0.11.0] - 2026-07-12
 
 ### Added

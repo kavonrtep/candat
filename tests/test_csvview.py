@@ -97,6 +97,26 @@ async def test_search_highlights_cells_and_cancel_keeps_position(sample_csv):
         assert table.cursor_row == pos  # in-place restyle keeps the cursor
 
 
+async def test_search_is_literal_smart_case(make_csv):
+    """Table search speaks the same dialect as the editor and pager: literal
+    text, smart case — regex metacharacters are matched verbatim."""
+    async with open_app([make_csv(100, "lit.csv")]) as (app, pilot):
+        viewer = await open_viewer(app, pilot)
+        table = viewer.table
+        row_before = table.cursor_row
+        viewer.search("item1.")  # a literal dot: matches nothing
+        await pilot.pause()
+        assert table.cursor_row == row_before
+        viewer.cancel_search()
+        viewer.search("ITEM42")  # uppercase -> exact case: no match
+        await pilot.pause()
+        assert table.cursor_row == row_before
+        viewer.cancel_search()
+        viewer.search("item42")  # lowercase -> case-insensitive: hit
+        await pilot.pause()
+        assert "item42" in [str(c) for c in table.get_row_at(table.cursor_row)]
+
+
 async def test_cells_stay_plain_strings_without_search(make_csv):
     """Cells are only promoted to Rich Text when they match an active search;
     a plain load (and non-matching cells during a search) stays str, which is

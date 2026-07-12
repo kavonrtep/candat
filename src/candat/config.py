@@ -9,6 +9,8 @@ Recognised keys:
   (the ``CANDAT_TREE_ICONS`` environment variable overrides this)
 - ``pager_wrap``: whether the large-file pager starts with soft wrap on
 - ``tabstop``: tab width in the pager
+- ``restore_session``: reopen the previous session's files when candat is
+  started without file arguments
 """
 
 from __future__ import annotations
@@ -25,6 +27,7 @@ DEFAULTS: dict[str, object] = {
     "tree_icons": "emoji",
     "pager_wrap": False,
     "tabstop": 8,
+    "restore_session": True,
 }
 
 

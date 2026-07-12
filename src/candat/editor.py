@@ -313,6 +313,13 @@ class EditorBuffer(TextArea):
     def display_name(self) -> str:
         return self.path.name if self.path else "*untitled*"
 
+    def restore_position(self, row: int, col: int, scroll: float) -> None:
+        """Place the cursor and scroll (clamped) — for session restore."""
+        row = max(0, min(row, self.document.line_count - 1))
+        col = max(0, min(col, len(self.document.get_line(row))))
+        self.selection = Selection((row, col), (row, col))
+        self.scroll_y = max(0.0, scroll)
+
     # -- shared buffer (linked views) ---------------------------------------
 
     def edit(self, edit):  # type: ignore[override]

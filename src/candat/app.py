@@ -13,6 +13,7 @@ from textual.containers import Horizontal
 from textual.widgets import DirectoryTree, Static, TabbedContent, TextArea
 
 from .buffers import BufferListScreen
+from . import config, session
 from .chords import CTRL_C_MAP, CTRL_X_MAP, ChordScreen
 from .commands import CandatCommands
 from .csvview import CSV_SUFFIXES
@@ -183,9 +184,87 @@ class CandatApp(App[None]):
         if self._files:
             for path in self._files:
                 await self._open_path(path)
-        else:
+        elif not await self._restore_session():
             await self._new_buffer()
         self.set_interval(1.0, self._check_disk_changes)
+
+    # -- session restore -----------------------------------------------------
+
+    async def _restore_session(self) -> bool:
+        """Reopen this project root's last session (files, cursors, active
+        tab); returns whether anything was reopened."""
+        if not config.load()["restore_session"]:
+            return False
+        saved = session.load(self._root)
+        if not saved:
+            return False
+        entries = [
+            entry
+            for entry in saved.get("files", [])
+            if isinstance(entry, dict) and Path(str(entry.get("path", ""))).exists()
+        ]
+        if not entries:
+            return False
+        for entry in entries:
+            path = Path(entry["path"])
+            await self._open_path(path)
+            editor = self._plain_editor_for(path)
+            if editor is not None:
+                editor.restore_position(
+                    int(entry.get("row", 0)),
+                    int(entry.get("col", 0)),
+                    float(entry.get("scroll", 0.0)),
+                )
+        if active := saved.get("active"):
+            self._activate_path(Path(active))
+        self._refresh_status()
+        return True
+
+    def _plain_editor_for(self, path: Path) -> EditorBuffer | None:
+        """The text-editor buffer showing `path`, if it isn't a CSV/pager
+        view (those manage their own position)."""
+        for pane in self.query(BufferPane):
+            if pane.editor.path == path and not pane.is_csv and not pane.is_pager:
+                return pane.editor
+        return None
+
+    def _activate_path(self, path: Path) -> None:
+        for pane in self.query(BufferPane):
+            if pane.editor.path == path:
+                group = group_of(pane)
+                if group is not None and pane.id is not None:
+                    group.active = pane.id
+                    self._active_group = group
+                pane.focus_visible()
+                return
+
+    def _save_session(self) -> None:
+        files: list[dict] = []
+        seen: set[str] = set()
+        for pane in self.query(BufferPane):
+            editor = pane.editor
+            if editor.path is None:
+                continue
+            key = str(editor.path)
+            if key in seen:
+                continue  # linked views (C-x 2/3) of the same buffer
+            seen.add(key)
+            row, col = editor.cursor_location
+            files.append(
+                {"path": key, "row": row, "col": col, "scroll": float(editor.scroll_y)}
+            )
+        pane = self.active_pane
+        active = (
+            str(pane.editor.path) if pane is not None and pane.editor.path else None
+        )
+        session.save(self._root, files, active)
+
+    def exit(self, *args, **kwargs) -> None:  # every quit path funnels here
+        try:
+            self._save_session()
+        except Exception:
+            pass  # never let session bookkeeping block quitting
+        super().exit(*args, **kwargs)
 
     # -- windows (editor groups) -------------------------------------------
 
