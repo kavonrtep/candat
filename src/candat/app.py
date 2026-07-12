@@ -821,6 +821,10 @@ class CandatApp(App[None]):
                 if pane.pager.check_disk() == "reloaded":
                     self.notify(f"Reloaded {editor.display_name}", timeout=1.5)
                 continue
+            if pane is not None and pane.is_bigtable:
+                if pane.bigtable.check_disk() == "reloaded":
+                    self.notify(f"Reloaded {editor.display_name}", timeout=1.5)
+                continue
             if editor.disk_mtime is None:
                 continue  # text never loaded (e.g. CSV toggled but unloaded)
             if mtime == editor.disk_mtime:

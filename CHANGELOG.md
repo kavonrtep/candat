@@ -34,8 +34,13 @@ changes).
   under a millisecond), and search scans the whole file once on a worker,
   collecting every match — `n`/`N` then jump match-to-match instantly with a
   `match k/M` counter. Same keys as the classic table (`/`, `C-s`/`C-r`,
-  `d`, `g`/`G`); the `&` row filter isn't available on windowed tables yet.
-  Files with quoted multi-line fields stay on the classic (exact) parser.
+  `d`, `g`/`G`), including the `&` row filter: one background scan collects
+  the matching rows (8 bytes each, so millions are fine), the view pages
+  through them with original line numbers in the gutter, and search results
+  intersect with the filter so `n`/`N` only visit visible rows. Windowed
+  tables also join the disk-change watch: a growing file extends the table
+  in place; rotation/truncation reloads it. Files with quoted multi-line
+  fields stay on the classic (exact) parser.
 - **macOS support.** The code was already POSIX-generic; CI now tests on
   macOS as well as Linux across Python 3.10 and 3.13.
 

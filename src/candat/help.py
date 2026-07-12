@@ -95,10 +95,12 @@ delimited file between pager and table without ever loading it whole.
 The table is read-only. Small files use the classic table; big ones (or
 anything over ~200k rows) switch to a windowed table with **no row limit** —
 only the visible rows are read, so millions of rows scroll instantly, `G`
-jumps straight to the end, and search scans the whole file in the background
-(`n`/`N` then step through every match, with a match counter). A buffer with
-unsaved edits is parsed from the buffer text, so the table always matches
-what you see.
+jumps straight to the end, and search and the `&` row filter each scan the
+whole file once in the background (`n`/`N` then step match-to-match with a
+counter; the filtered view keeps original line numbers, and search steps
+only through rows that pass the filter). Files are watched: a growing file
+extends the table in place. A buffer with unsaved edits is parsed from the
+buffer text, so the table always matches what you see.
 
 ## Windows (splits)
 

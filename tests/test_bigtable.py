@@ -118,6 +118,98 @@ async def test_delimiter_switch_reuses_index(tmp_path):
         await cm.__aexit__(None, None, None)
 
 
+async def do_filter(app, pilot, table, pattern):
+    table.apply_filter(pattern)
+    await app.workers.wait_for_complete()
+    await pilot.pause()
+
+
+async def test_filter_restricts_view_keeps_line_numbers(tmp_path):
+    path = make_table_file(tmp_path)
+    app, pilot, cm, table = await open_table(path)
+    try:
+        await do_filter(app, pilot, table, r"chr7\t")  # every 22nd row
+        assert table.filtered
+        expected = len([i for i in range(300_000) if i % 22 + 1 == 7])
+        assert table.view_count() == expected
+        # Navigation walks only filtered rows; gutter keeps original lines.
+        table.action_goto_top()
+        first = table.cursor_row
+        assert table.fetch_rows(first, 1)[0][0] == "chr7"
+        table.action_cursor(1)
+        second = table.cursor_row
+        assert second - first == 22  # next chr7 row, 22 data rows later
+        rendered = table.render().plain
+        assert f"row 2/{expected:,}" in rendered
+        assert "filter: chr7" in rendered
+        # G goes to the last *filtered* row.
+        table.action_goto_bottom()
+        assert table.fetch_rows(table.cursor_row, 1)[0][0] == "chr7"
+        # Empty pattern clears the filter.
+        await do_filter(app, pilot, table, "")
+        assert not table.filtered and table.view_count() == 300_000
+    finally:
+        await cm.__aexit__(None, None, None)
+
+
+async def test_search_intersects_with_filter(tmp_path):
+    path = make_table_file(tmp_path)
+    app, pilot, cm, table = await open_table(path)
+    try:
+        await do_filter(app, pilot, table, r"chr7\t")
+        await do_search(app, pilot, table, "feature10")  # many rows, all chroms
+        assert table._matches  # effective matches
+        assert len(table._matches) < len(table._all_matches)
+        # every effective match is a chr7 row
+        for row in list(table._matches)[:20]:
+            assert table.fetch_rows(row, 1)[0][0] == "chr7"
+        # n steps stay inside the filter
+        table.step_match(True)
+        assert table.fetch_rows(table.cursor_row, 1)[0][0] == "chr7"
+        # clearing the filter widens matches back out
+        await do_filter(app, pilot, table, "")
+        assert len(table._matches) == len(table._all_matches)
+    finally:
+        await cm.__aexit__(None, None, None)
+
+
+async def test_filter_bad_regex_and_no_rows(tmp_path):
+    path = make_table_file(tmp_path, rows=1000)
+    app, pilot, cm, table = await open_table(path)
+    try:
+        table.apply_filter("[unclosed")
+        assert not table.filtered  # rejected, view unchanged
+        await do_filter(app, pilot, table, "nothing-matches-zzz")
+        assert table.filtered and table.view_count() == 0
+        table.render()  # empty filtered view renders without crashing
+        await do_filter(app, pilot, table, "")
+    finally:
+        await cm.__aexit__(None, None, None)
+
+
+async def test_check_disk_growth_and_truncation(tmp_path):
+    path = make_table_file(tmp_path, rows=5000)
+    app, pilot, cm, table = await open_table(path)
+    try:
+        assert table.total_rows == 5000
+        table.goto_row(100)
+        with path.open("a") as f:
+            for i in range(5000, 5100):
+                f.write(f"chr1\t{i}\t{i + 100}\tfeature{i}\n")
+        assert table.check_disk() == "grew"
+        assert table.total_rows == 5100
+        assert table.cursor_row == 100  # viewport stayed put
+        assert table.fetch_rows(5099, 1)[0][3] == "feature5099"
+        import os
+
+        os.truncate(path, 100)
+        assert table.check_disk() == "reloaded"
+        await wait_for(pilot, lambda: not table._indexing)
+        assert table.total_rows < 5000
+    finally:
+        await cm.__aexit__(None, None, None)
+
+
 async def test_big_file_routes_to_bigtable_on_open(tmp_path):
     path = make_table_file(tmp_path, name="big.csv")  # .csv auto-opens as table
     async with open_app([path]) as (app, pilot):

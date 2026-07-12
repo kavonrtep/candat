@@ -21,6 +21,9 @@ from __future__ import annotations
 
 import bisect
 import csv
+import os
+import re
+from array import array
 from functools import partial
 from pathlib import Path
 
@@ -40,6 +43,8 @@ MAX_COL_FRACTION = 0.35  # one column may take at most this much of the width
 COL_GAP = 2
 FETCH_CAP_BYTES = 8 * CHUNK  # never read more than this for one viewport
 PROGRESS_EVERY = 32 * CHUNK
+SEEK_CHUNK = 64 * 1024  # read size while walking to a line (usually one read)
+GROW_SCAN_BUDGET = 64 * CHUNK  # max new bytes indexed per disk-watch poll
 
 
 def has_quoted_newline(sample: str) -> bool:
@@ -60,7 +65,10 @@ def _line_offset(reader: _FileReader, index: LineIndex, line: int) -> int:
     current = block * SPARSE_STEP
     pos = index.offsets[block]
     while current < line:
-        chunk = reader.read(pos, CHUNK)
+        # Small reads: the target is at most SPARSE_STEP lines past the block
+        # start, so 64 KB usually covers it — filtered views seek up to ~40
+        # scattered rows per frame and 1 MB reads each would be wasteful.
+        chunk = reader.read(pos, SEEK_CHUNK)
         if not chunk:
             return reader.size
         i = 0
@@ -114,13 +122,18 @@ class BigTable(Widget, can_focus=True):
         self._columns: list[str] = []
         self._widths: list[int] = []
         self.cursor_row = 0  # data-row index (0-based, header excluded)
-        self.top_row = 0
+        self.top_row = 0  # top of the window, in VIEW space (filtered indices)
         self.col_offset = 0
         # Search: every matching data-row number, collected by one scan.
         self._last_query = ""
-        self._matches: list[int] = []
+        self._all_matches: array = array("q")
+        self._matches: array = array("q")  # ∩ filter when one is active
         self._search_seq = 0
         self._search_running = False
+        # Filter (&): the visible subset of data rows, collected by one scan.
+        self._filter_rows: array | None = None
+        self._filter_pattern = ""
+        self._filter_running = False
 
     # -- lifecycle -----------------------------------------------------------
 
@@ -136,7 +149,11 @@ class BigTable(Widget, can_focus=True):
         self._widths = []
         self.cursor_row = self.top_row = self.col_offset = 0
         self._last_query = ""
-        self._matches = []
+        self._all_matches = array("q")
+        self._matches = array("q")
+        self._filter_rows = None
+        self._filter_pattern = ""
+        self._filter_running = False
         try:
             reader = _FileReader(path)
         except OSError:
@@ -198,8 +215,12 @@ class BigTable(Widget, can_focus=True):
         self.path = None
         self._index = LineIndex()
         self._indexing = True
-        self._matches = []
+        self._all_matches = array("q")
+        self._matches = array("q")
         self._last_query = ""
+        self._filter_rows = None
+        self._filter_pattern = ""
+        self._filter_running = False
 
     def on_unmount(self) -> None:
         self._generation += 1
@@ -220,6 +241,55 @@ class BigTable(Widget, can_focus=True):
     def total_rows(self) -> int:
         """Data rows indexed so far (grows while indexing)."""
         return max(0, self._index.line_count - self._header_offset)
+
+    # -- view space (identical to data space unless a filter is active) --------
+
+    @property
+    def filtered(self) -> bool:
+        return self._filter_rows is not None
+
+    def view_count(self) -> int:
+        if self._filter_rows is not None:
+            return len(self._filter_rows)
+        return self.total_rows
+
+    def _data_of(self, view_index: int) -> int:
+        if self._filter_rows is not None:
+            return self._filter_rows[view_index]
+        return view_index
+
+    def _view_of(self, data_row: int) -> int:
+        if self._filter_rows is not None:
+            return bisect.bisect_left(self._filter_rows, data_row)
+        return data_row
+
+    # -- disk watch -------------------------------------------------------------
+
+    def check_disk(self) -> str | None:
+        """Sync with the file on disk: extend the index if it grew (viewport
+        stays put), reload if rotated or truncated. Called by the app's
+        disk-change poll; returns "grew", "reloaded" or None."""
+        reader = self._reader
+        if reader is None or self.path is None or self._indexing:
+            return None
+        try:
+            disk = os.stat(self.path)
+            rotated = disk.st_ino != os.fstat(reader.fd).st_ino
+        except OSError:
+            return None
+        if rotated or disk.st_size < self._index.scanned:
+            self.load(self.path, delimiter=self._delimiter)
+            return "reloaded"
+        if reader.refresh_size() > self._index.scanned:
+            # Index only the new tail, bounded per poll to keep the UI live.
+            already = self._index.scanned
+            self._index.scan(
+                reader,
+                should_stop=lambda: self._index.scanned - already > GROW_SCAN_BUDGET,
+            )
+            self._moved()
+            return "grew"
+        return None
 
     def _read_lines(self, start_line: int, count: int) -> list[str]:
         """Raw file lines [start_line, start_line+count), from the index."""
@@ -300,13 +370,23 @@ class BigTable(Widget, can_focus=True):
         if height < 2 or self._reader is None:
             return Text(end="")
         body_rows = max(1, height - 2)  # header + status
-        # Keep the cursor inside the window.
-        self.cursor_row = max(0, min(self.cursor_row, max(0, self.total_rows - 1)))
-        if self.cursor_row < self.top_row:
-            self.top_row = self.cursor_row
-        if self.cursor_row >= self.top_row + body_rows:
-            self.top_row = self.cursor_row - body_rows + 1
-        rows = self.fetch_rows(self.top_row, body_rows)
+        # Window bookkeeping happens in view space (filtered indices).
+        count = self.view_count()
+        cursor_v = min(self._view_of(self.cursor_row), max(0, count - 1))
+        self.cursor_row = self._data_of(cursor_v) if count else 0
+        if cursor_v < self.top_row:
+            self.top_row = cursor_v
+        if cursor_v >= self.top_row + body_rows:
+            self.top_row = cursor_v - body_rows + 1
+        self.top_row = min(self.top_row, max(0, count - 1))
+        view_indices = list(range(self.top_row, min(self.top_row + body_rows, count)))
+        if self._filter_rows is None:
+            rows = self.fetch_rows(self.top_row, len(view_indices))
+        else:  # scattered rows: one small seek each
+            rows = [
+                (self.fetch_rows(self._data_of(v), 1) or [[]])[0]
+                for v in view_indices
+            ]
         self._update_widths(rows)
         gutter = max(4, len(f"{self._index.line_count:,}")) + 1
         cols = range(self.col_offset, len(self._widths))
@@ -344,16 +424,18 @@ class BigTable(Widget, can_focus=True):
         out.append_text(line_for(self._columns, "#", self.HEADER_STYLE, hl=False))
         for j in range(body_rows):
             out.append("\n")
-            row_index = self.top_row + j
-            if row_index >= self.total_rows or j >= len(rows):
+            if j >= len(view_indices) or j >= len(rows):
                 continue
-            if row_index == self.cursor_row:
+            view_index = view_indices[j]
+            data_row = self._data_of(view_index)
+            if data_row == self.cursor_row:
                 style = self.CURSOR_STYLE
-            elif row_index % 2:
+            elif view_index % 2:
                 style = self.ZEBRA_STYLE
             else:
                 style = Style()
-            label = f"{row_index + 1 + self._header_offset:,}"
+            # The gutter keeps original file line numbers, filtered or not.
+            label = f"{data_row + 1 + self._header_offset:,}"
             out.append_text(line_for(rows[j], label, style, hl=bool(self._last_query)))
         out.append("\n")
         status = self.status_line(width)
@@ -362,22 +444,26 @@ class BigTable(Widget, can_focus=True):
 
     def status_line(self, width: int) -> Text:
         name = self.path.name if self.path else ""
-        total = self.total_rows
+        count = self.view_count()
         more = "" if not self._indexing else "+"
-        row = self.cursor_row + 1 if total else 0
+        row = self._view_of(self.cursor_row) + 1 if count else 0
         parts = [
             f" {name}",
-            f"row {row:,}/{total:,}{more}",
+            f"row {row:,}/{count:,}{more}",
             f"{len(self._columns)} cols",
             f"sep {delimiter_label(self._delimiter)}",
         ]
+        if self._filter_running:
+            parts.append("filtering…")
+        elif self.filtered:
+            parts.append(f"filter: {self._filter_pattern}")
         if self._search_running:
             parts.append("searching…")
         elif self._matches:
             k = bisect.bisect_right(self._matches, self.cursor_row)
             parts.append(f"match {k:,}/{len(self._matches):,}")
         text = Text("   ".join(parts), self.STATUS_STYLE, end="")
-        hint = "   / search  C-s/n C-r/N next/prev  d delim  g/G ends"
+        hint = "   / search  C-s/n C-r/N next/prev  d delim  & filter  g/G ends"
         text.append(hint, self.DIM_STYLE)
         pad = width - cell_len(text.plain)
         if pad > 0:
@@ -387,7 +473,11 @@ class BigTable(Widget, can_focus=True):
     # -- navigation --------------------------------------------------------------
 
     def action_cursor(self, amount: int) -> None:
-        self.cursor_row = max(0, min(self.cursor_row + amount, max(0, self.total_rows - 1)))
+        count = self.view_count()
+        if count == 0:
+            return
+        v = max(0, min(self._view_of(self.cursor_row) + amount, count - 1))
+        self.cursor_row = self._data_of(v)
         self._moved()
 
     def action_page(self, direction: int) -> None:
@@ -399,17 +489,25 @@ class BigTable(Widget, can_focus=True):
         self._moved()
 
     def action_goto_top(self) -> None:
-        self.cursor_row = 0
+        self.cursor_row = self._data_of(0) if self.view_count() else 0
         self._moved()
 
     def action_goto_bottom(self) -> None:
-        self.cursor_row = max(0, self.total_rows - 1)
+        count = self.view_count()
+        self.cursor_row = self._data_of(count - 1) if count else 0
         if self._indexing:
             self.app.notify("Still indexing — jumped to the rows seen so far", timeout=2)
         self._moved()
 
     def goto_row(self, row: int) -> None:
-        self.cursor_row = max(0, min(row, max(0, self.total_rows - 1)))
+        """Move to a data row, snapping into the filtered view if one is on."""
+        row = max(0, min(row, max(0, self.total_rows - 1)))
+        count = self.view_count()
+        if count == 0:
+            self.cursor_row = 0
+        else:
+            v = min(self._view_of(row), count - 1)
+            self.cursor_row = self._data_of(v)
         self._moved()
 
     # -- search --------------------------------------------------------------------
@@ -424,7 +522,8 @@ class BigTable(Widget, can_focus=True):
         if self._reader is None:
             return
         self._last_query = term
-        self._matches = []
+        self._all_matches = array("q")
+        self._matches = array("q")
         self._search_seq += 1
         self._search_running = True
         self._moved()
@@ -447,7 +546,7 @@ class BigTable(Widget, can_focus=True):
     def _search_worker(self, reader, pattern, term, gen, seq, header_offset) -> None:
         worker = get_current_worker()
         overlap = 4 * len(term) + 8
-        matches: list[int] = []
+        matches = array("q")  # 8 bytes per match, even for millions
         pos = 0
         base_line = 0
         size = reader.size
@@ -475,7 +574,7 @@ class BigTable(Widget, can_focus=True):
             reader.close()
         self.app.call_from_thread(self._search_done, gen, seq, term, matches)
 
-    def _search_done(self, gen: int, seq: int, term: str, matches: list[int]) -> None:
+    def _search_done(self, gen: int, seq: int, term: str, matches: array) -> None:
         if gen != self._generation or seq != self._search_seq:
             return
         self._search_running = False
@@ -484,10 +583,38 @@ class BigTable(Widget, can_focus=True):
             self.app.notify(f"Not found: {term}", severity="warning", timeout=2)
             self._moved()
             return
-        self._matches = matches
+        self._all_matches = matches
+        self._recompute_matches()
+        if not self._matches:
+            self.app.notify(
+                f"Matches exist but none pass the filter: {term}",
+                severity="warning",
+                timeout=3,
+            )
+            self._moved()
+            return
         # Jump to the first match at or after the cursor (wrapping).
-        i = bisect.bisect_left(matches, self.cursor_row)
-        self.goto_row(matches[i] if i < len(matches) else matches[0])
+        i = bisect.bisect_left(self._matches, self.cursor_row)
+        self.goto_row(self._matches[i] if i < len(self._matches) else self._matches[0])
+
+    def _recompute_matches(self) -> None:
+        """Effective matches = all matches ∩ filter rows (both sorted)."""
+        if self._filter_rows is None:
+            self._matches = self._all_matches
+            return
+        out = array("q")
+        a, b = self._all_matches, self._filter_rows
+        i = j = 0
+        while i < len(a) and j < len(b):
+            if a[i] == b[j]:
+                out.append(a[i])
+                i += 1
+                j += 1
+            elif a[i] < b[j]:
+                i += 1
+            else:
+                j += 1
+        self._matches = out
 
     def step_match(self, forward: bool) -> None:
         if self._search_running:
@@ -508,7 +635,93 @@ class BigTable(Widget, can_focus=True):
         self._search_seq += 1  # a running worker sees a stale seq and stops
         self._search_running = False
         self._last_query = ""
-        self._matches = []
+        self._all_matches = array("q")
+        self._matches = array("q")
+        self._moved()
+
+    # -- filter (&) ------------------------------------------------------------
+
+    def apply_filter(self, pattern: str) -> None:
+        """Restrict the view to rows matching a regex (empty clears). One
+        linewise scan on a worker collects the matching row numbers; the view
+        then pages through them, keeping original line numbers in the gutter."""
+        if not pattern:
+            self.clear_filter()
+            return
+        if self._reader is None:
+            return
+        flags = re.IGNORECASE if pattern == pattern.lower() else 0
+        try:
+            regex = re.compile(pattern.encode("utf-8"), flags)
+        except (re.error, UnicodeEncodeError):
+            self.app.notify(f"Bad regex: {pattern}", severity="error", timeout=2)
+            return
+        self._filter_pattern = pattern
+        self._filter_running = True
+        self._search_seq += 1  # reuse the seq to invalidate stale scans
+        self._moved()
+        self.run_worker(
+            partial(
+                self._filter_worker,
+                self._reader.dup(),
+                regex,
+                self._generation,
+                self._search_seq,
+                self._header_offset,
+            ),
+            thread=True,
+            exclusive=True,
+            group="bigtable-filter",
+        )
+
+    def _filter_worker(self, reader, regex, gen, seq, header_offset) -> None:
+        worker = get_current_worker()
+        rows = array("q")
+        pos = 0
+        line_no = 0
+        carry = b""
+        try:
+            size = reader.size
+            while pos < size:
+                if worker.is_cancelled or seq != self._search_seq or gen != self._generation:
+                    return
+                chunk = reader.read(pos, CHUNK)
+                if not chunk:
+                    break
+                data = carry + chunk
+                lines = data.split(b"\n")
+                carry = lines.pop()  # partial last line rolls into next chunk
+                for raw in lines:
+                    row = line_no - header_offset
+                    if row >= 0 and regex.search(raw):
+                        rows.append(row)
+                    line_no += 1
+                pos += len(chunk)
+            if carry:  # trailing line without a newline
+                row = line_no - header_offset
+                if row >= 0 and regex.search(carry):
+                    rows.append(row)
+        finally:
+            reader.close()
+        self.app.call_from_thread(self._filter_done, gen, seq, rows)
+
+    def _filter_done(self, gen: int, seq: int, rows: array) -> None:
+        if gen != self._generation or seq != self._search_seq:
+            return
+        self._filter_running = False
+        self._filter_rows = rows  # may be empty: "0 rows" is honest feedback
+        self._recompute_matches()
+        self.goto_row(self.cursor_row)  # snap into the filtered view
+        self._moved()
+
+    def clear_filter(self) -> None:
+        if self._filter_rows is None and not self._filter_running:
+            return
+        self._search_seq += 1  # stop a running filter scan
+        self._filter_running = False
+        self._filter_rows = None
+        self._filter_pattern = ""
+        self._recompute_matches()
         self._moved()
 
     def set_delimiter(self, delimiter: str) -> None:
@@ -592,10 +805,17 @@ class BigTable(Widget, can_focus=True):
             )
         elif key == "ampersand":
             event.stop()
-            self.app.notify(
-                "Row filter isn't available on huge tables yet — use / search",
-                timeout=3,
+
+            def do_filter(pattern: str | None) -> None:
+                if pattern is not None:
+                    self.apply_filter(pattern)
+
+            self.app.push_screen(
+                PromptScreen("Filter rows (regex, empty clears):"), do_filter
             )
+        elif key == "escape" and self._filter_running:
+            event.stop()
+            self.clear_filter()
         elif key == "escape" and self.searching:
             event.stop()
             self.cancel_search()
