@@ -7,6 +7,8 @@ changes).
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-07-12
+
 ### Added
 - **Match highlighting in the large-file pager.** Every occurrence of the
   search term in the visible area is highlighted, not just the current one.
