@@ -1,6 +1,6 @@
 [project]
 name = "candat"
-version = "0.12.0"
+version = "1.0.0"
 description = "A terminal text editor with emacs keybindings, built on Textual — file tree, markdown preview, CSV table viewer, a large-file pager, and a real PTY terminal"
 readme = "README.md"
 authors = [
@@ -11,7 +11,7 @@ license-files = ["LICENSE"]
 requires-python = ">=3.10"
 keywords = ["editor", "terminal", "tui", "emacs", "textual", "markdown"]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Environment :: Console",
     "Intended Audience :: Developers",
     "Operating System :: POSIX :: Linux",

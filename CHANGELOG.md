@@ -1,11 +1,19 @@
 # Changelog
 
 All notable changes to candat. The format is based on
-[Keep a Changelog](https://keepachangelog.com/); candat follows semantic
-versioning loosely (it is pre-1.0, so minor versions may include behaviour
-changes).
+[Keep a Changelog](https://keepachangelog.com/); from 1.0.0 candat follows
+semantic versioning — see the Stability section of the README for what is
+covered by the compatibility promise.
 
 ## [Unreleased]
+
+## [1.0.0] - 2026-07-12
+
+The 1.0 milestone is about trust, not features: saves can no longer corrupt
+or truncate a file, unsaved work survives a crash, tables have no row limit,
+and Linux + macOS are both tested in CI. From here on, the config keys, CLI,
+keybindings, `M-x` command names, and on-disk file locations are stable
+within a major version.
 
 ### Added
 - **Crash recovery.** Buffers with unsaved edits are snapshotted to
