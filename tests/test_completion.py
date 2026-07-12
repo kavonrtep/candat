@@ -111,6 +111,10 @@ async def test_no_match_shows_hint(tmp_path):
     root = make_files(tmp_path)
     async with open_app() as (app, pilot):
         prompt, inp = await open_find_file(app, pilot, f"{root}/zzz")
+        # Drain the value-set's Input.Changed (which clears the hint) before
+        # Tab, so it can't land after Tab's show_hint and wipe "[no match]"
+        # (it did exactly that on the slower macOS runner).
+        await pilot.pause()
         await pilot.press("tab")
         assert await wait_for(pilot, lambda: "no match" in hint_of(prompt))
         assert not prompt.completions_visible
