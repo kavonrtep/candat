@@ -328,6 +328,20 @@ class CsvViewer(Vertical):
                 self.app.notify("No more matches", timeout=2)
                 return
 
+    def search_prev(self) -> None:
+        """Move to the previous matching row (C-r / N). Rows stream in from the
+        top, so a backward search only ever walks already-loaded rows."""
+        regex = self._last_search
+        if regex is None:
+            return
+        table = self.table
+        for row in range(table.cursor_row - 1, -1, -1):
+            if any(regex.search(str(cell)) for cell in table.get_row_at(row)):
+                table.move_cursor(row=row)
+                self._update_status()
+                return
+        self.app.notify("No previous match", timeout=2)
+
     def apply_filter(self, pattern: str) -> None:
         if not pattern:
             self._filter = None
@@ -354,7 +368,7 @@ class CsvViewer(Vertical):
         ]
         if self._filter is not None:
             parts.append(f"filter: {self._filter.pattern}")
-        parts.append("[dim]/ search  C-s/n next  & filter  G end[/]")
+        parts.append("[dim]/ search  C-s/n next  C-r/N prev  & filter  G end[/]")
         self.query_one("#csv-status", Static).update("   ".join(parts))
 
     @on(DataTable.RowHighlighted)
@@ -392,9 +406,22 @@ class CsvViewer(Vertical):
                 self.search_next()
             else:
                 self._prompt_search()
+        elif key == "ctrl+r":
+            # C-r steps to the previous match when a search is active (like the
+            # editor / pager); otherwise it starts one. Handle it here so it
+            # doesn't bubble up to the editor's isearch.
+            event.stop()
+            event.prevent_default()
+            if self._last_search is not None:
+                self.search_prev()
+            else:
+                self._prompt_search()
         elif key == "n":
             event.stop()
             self.search_next()
+        elif key == "N":
+            event.stop()
+            self.search_prev()
         elif key == "escape" and self.searching:
             # Esc (like C-g) clears the search highlight.
             event.stop()

@@ -104,8 +104,9 @@ partial view can never overwrite the real file.
 and original file line numbers in the gutter. Large files stream in as you
 scroll rather than loading whole. In the table: `/` (or `C-s`) searches —
 literal with smart case, the same dialect as everywhere else — with the
-matched text highlighted in the cells (`Esc` clears), `n` repeats, `&`
-filters rows by regex, `g`/`G` jump to top/bottom. `C-c C-v` switches
+matched text highlighted in the cells (`Esc` clears), `C-s`/`n` and
+`C-r`/`N` step to the next / previous match, `&` filters rows by regex,
+`g`/`G` jump to top/bottom. `C-c C-v` switches
 between the table and the raw text. The table is read-only.
 
 The file-tree icons are emoji by default; if your terminal renders them poorly

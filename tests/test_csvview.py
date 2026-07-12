@@ -67,6 +67,43 @@ async def test_search_streams_beyond_loaded_rows(make_csv):
         assert table.cursor_row == row_before
 
 
+async def test_search_backward_with_ctrl_r(tmp_path):
+    # A marker that lands on a few known rows (item3, item13, item23, item33).
+    path = tmp_path / "mark.csv"
+    path.write_text(
+        "id,name,value\n"
+        + "".join(f"{i},item{i},{i}\n" for i in range(1, 41))
+    )
+    async with open_app([path]) as (app, pilot):
+        viewer = await open_viewer(app, pilot)
+        table = viewer.table
+
+        def name(row):
+            return str(table.get_row_at(row)[1])
+
+        await pilot.press("slash")
+        await pilot.pause()
+        app.screen.query_one(Input).value = "item3"  # item3, item30..item39
+        await pilot.press("enter")
+        await pilot.pause()
+        first = table.cursor_row
+        assert name(first) == "item3"
+
+        await pilot.press("ctrl+s")  # next match forward
+        await pilot.pause()
+        second = table.cursor_row
+        assert second > first and name(second) == "item30"
+
+        await pilot.press("ctrl+r")  # previous match — the bug: this did nothing
+        await pilot.pause()
+        assert table.cursor_row == first and name(table.cursor_row) == "item3"
+
+        # N is the same as C-r; at the top it reports no earlier match and stays.
+        await pilot.press("N")
+        await pilot.pause()
+        assert table.cursor_row == first
+
+
 async def test_search_highlights_cells_and_cancel_keeps_position(sample_csv):
     from rich.text import Text
 

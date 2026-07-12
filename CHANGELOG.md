@@ -30,6 +30,9 @@ changes).
 ### Fixed
 - **UTF-16 files no longer misdetected as binary** (their NUL bytes are text
   when a byte-order mark is present).
+- **`C-r` steps to the previous match in the CSV/TSV table** (with `N` as an
+  alias). Backward search worked in the editor and pager but the table only
+  went forward — `C-r` fell through to the editor's isearch and did nothing.
 
 ## [0.12.0] - 2026-07-12
 

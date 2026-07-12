@@ -78,6 +78,7 @@ KEY_HELP = """\
 | --- | --- |
 | `/` | search rows (literal, smart case — same as everywhere); matches are highlighted in the cells |
 | `C-s` / `n` | next match |
+| `C-r` / `N` | previous match |
 | `C-g` / `Esc` | cancel search (clear the highlight) |
 | `&` | filter rows by regex (empty clears) |
 | `g` / `G` | first row / load all and go to last |
