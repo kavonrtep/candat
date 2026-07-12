@@ -135,8 +135,16 @@ In the terminal panel all keys go to the shell (including `C-c`);
 only `C-x` is reserved, so `C-x t` and `C-x o` always work.
 
 Open files are watched: a buffer without local edits reloads when its
-file changes on disk; with local edits you are asked first. The status
-bar shows `--` clean, `**` modified, `%%` read-only.
+file changes on disk; with local edits you are asked first (pager and
+CSV views track the file in place). The status bar shows `--` clean,
+`**` modified, `%%` read-only.
+
+## Configuration
+
+`~/.config/candat/config.toml` (XDG aware): `tree_icons` ("emoji" /
+"nerd" / "ascii"; `cycle-tree-icons` saves your choice), `pager_wrap`
+(start the pager wrapped), `tabstop` (tab width in the pager). The
+`CANDAT_TREE_ICONS` environment variable overrides the config.
 
 *Press `q`, `Esc`, or `C-g` to close this help.*
 """

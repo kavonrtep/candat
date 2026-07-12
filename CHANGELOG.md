@@ -8,6 +8,18 @@ changes).
 ## [Unreleased]
 
 ### Added
+- **A config file: `~/.config/candat/config.toml`** (XDG aware). Keys:
+  `tree_icons` (emoji / nerd / ascii — `cycle-tree-icons` now persists your
+  choice), `pager_wrap` (start the pager wrapped) and `tabstop` (tab width in
+  the pager). `$CANDAT_TREE_ICONS` still overrides.
+- **Mouse-wheel scrolling in the pager** (scrolling up also unpins follow
+  mode, like any key).
+- **Indexing progress.** Opening a multi-GB file in the pager shows
+  `indexing… 34% (2,150 / 6,300 MB)` in the view and status bar instead of a
+  bare `indexing…`.
+- **Hard-crash tracebacks.** `faulthandler` writes SIGSEGV/SIGBUS/SIGABRT
+  tracebacks (e.g. a native tree-sitter fault) to `~/.cache/candat/`, where
+  the Python-level crash log can't reach; the file is dropped on a clean exit.
 - **Follow mode in the pager (`F`).** Like `less +F`: sticks to the end of a
   growing file, indexing only the new tail; detects rotation/truncation and
   reopens. Any key (or `C-g`) stops following.
@@ -39,6 +51,9 @@ changes).
   matching cells (bounded at 50,000 rows) instead of every loaded cell.
 - **Large/binary read-only guard now lifts** when a reload brings the buffer
   back to a normal, fully loaded state, instead of leaving it stuck read-only.
+- **Pager panes join the disk-change watch.** A growing file extends the index
+  in place (your viewport stays put); a rotated or truncated file reopens —
+  previously the pager went silently stale unless you pressed `F`.
 
 ### Fixed
 - **Re-pointing the pager at a new file no longer races the indexer** (the old

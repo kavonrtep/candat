@@ -18,6 +18,8 @@ from textual.binding import Binding
 from textual.containers import Vertical
 from textual.widgets import DirectoryTree, Input
 
+from . import config
+
 IGNORE_DIRS = {
     ".git",
     ".venv",
@@ -44,7 +46,9 @@ DEFAULT_ICONS = "emoji"
 
 def resolve_icon_set(name: str | None) -> str:
     if name is None:
-        name = os.environ.get("CANDAT_TREE_ICONS", DEFAULT_ICONS)
+        name = os.environ.get("CANDAT_TREE_ICONS")
+    if name is None:
+        name = str(config.load()["tree_icons"])
     return name if name in TREE_ICON_SETS else DEFAULT_ICONS
 
 
@@ -65,10 +69,12 @@ class FileTree(DirectoryTree):
         self.ICON_NODE, self.ICON_NODE_EXPANDED, self.ICON_FILE = TREE_ICON_SETS[name]
 
     def cycle_icons(self) -> str:
-        """Switch to the next icon set live and re-render; returns its name."""
+        """Switch to the next icon set live and re-render; returns its name.
+        The choice is persisted to the config file, so it sticks across runs."""
         order = list(TREE_ICON_SETS)
         nxt = order[(order.index(self._icon_set) + 1) % len(order)]
         self.apply_icons(nxt)
+        config.save_setting("tree_icons", nxt)
         # refresh() alone leaves the cached node labels (icons only update when
         # the tree next re-renders, e.g. on focus); _invalidate (a Tree
         # internal) clears the line cache so the new icons show immediately —

@@ -267,6 +267,45 @@ async def test_goto_percent(tmp_path):
         await cm.__aexit__(None, None, None)
 
 
+async def test_mouse_wheel_scrolls(tmp_path):
+    from types import SimpleNamespace
+
+    app, pilot, cm, pager = await open_pager(make_file(tmp_path))
+    try:
+        event = SimpleNamespace(stop=lambda: None)
+        pager.on_mouse_scroll_down(event)
+        assert pager.top_line == 3
+        pager.on_mouse_scroll_up(event)
+        assert pager.top_line == 0
+        # scrolling while following unpins from the end
+        pager.action_follow()
+        assert pager.following
+        pager.on_mouse_scroll_up(event)
+        assert not pager.following
+    finally:
+        await cm.__aexit__(None, None, None)
+
+
+async def test_check_disk_extends_index_in_place(tmp_path):
+    """The app's disk poll picks up growth without moving the viewport, and
+    reopens on truncation."""
+    f = tmp_path / "grow.log"
+    f.write_text("".join(f"old {i}\n" for i in range(100)))
+    app, pilot, cm, pager = await open_pager(f)
+    try:
+        pager.goto_line(10)
+        with f.open("a") as handle:
+            handle.write("".join(f"new {i}\n" for i in range(20)))
+        assert pager.check_disk() == "grew"
+        assert pager.line_count == 120
+        assert pager.top_line == 10  # viewport stayed put
+        assert pager.read_line(119) == "new 19"
+        os.truncate(f, 8)
+        assert pager.check_disk() == "reloaded"
+    finally:
+        await cm.__aexit__(None, None, None)
+
+
 async def test_follow_mode_tracks_growth(tmp_path):
     f = tmp_path / "grow.log"
     f.write_text("".join(f"old {i}\n" for i in range(100)))

@@ -31,12 +31,14 @@ from textual.message import Message
 from textual.widget import Widget
 from textual.worker import get_current_worker
 
+from . import config
+
 SPARSE_STEP = 512  # index a byte offset every 512 lines
 CHUNK = 1 << 20  # scan/read block size (1 MiB)
 MAX_LINE_BYTES = 64 * 1024  # one line is read at most this deep for display
-TABSTOP = 8
 FOLLOW_INTERVAL = 1.0  # seconds between follow-mode polls
-FOLLOW_SCAN_BUDGET = 64 * CHUNK  # max new bytes indexed per follow poll
+FOLLOW_SCAN_BUDGET = 64 * CHUNK  # max new bytes indexed per poll/reload sync
+PROGRESS_EVERY = 32 * CHUNK  # indexing-progress reports, at most one per 32 MiB
 
 
 class _FileReader:
@@ -101,8 +103,9 @@ class LineIndex:
         tail = 1 if self.scanned > self.last_line_start else 0
         return self.newlines + tail
 
-    def scan(self, reader: _FileReader, should_stop=None) -> bool:
-        """Scan ``[self.scanned, reader.size)``; False if stopped early."""
+    def scan(self, reader: _FileReader, should_stop=None, on_chunk=None) -> bool:
+        """Scan ``[self.scanned, reader.size)``; False if stopped early.
+        `on_chunk(scanned, size)` is called after each chunk (progress)."""
         size = reader.size
         while self.scanned < size:
             if should_stop is not None and should_stop():
@@ -119,6 +122,8 @@ class LineIndex:
                 if self.newlines % SPARSE_STEP == 0:
                     self.offsets.append(base + pos)
             self.scanned += len(chunk)
+            if on_chunk is not None:
+                on_chunk(self.scanned, size)
         self.complete = True
         return True
 
@@ -263,13 +268,18 @@ class TextPager(Widget, can_focus=True):
     class Moved(Message):
         """Posted when the viewport position changes (for the status bar)."""
 
-    def __init__(self, path: Path | None = None, wrap: bool = False, **kwargs) -> None:
+    def __init__(
+        self, path: Path | None = None, wrap: bool | None = None, **kwargs
+    ) -> None:
         super().__init__(**kwargs)
+        settings = config.load()
         self.path = path
-        self._wrap = wrap
+        self._wrap = bool(settings["pager_wrap"]) if wrap is None else wrap
+        self._tabstop = int(settings["tabstop"])  # type: ignore[arg-type]
         self._reader: _FileReader | None = None
         self._index = LineIndex()
         self._indexing = True
+        self._index_progress: tuple[int, int] | None = None  # (scanned, size)
         # Bumped whenever the pager points elsewhere; workers carry the value
         # they were started with, so a stale open/search can't install results.
         self._generation = 0
@@ -304,6 +314,7 @@ class TextPager(Widget, can_focus=True):
         self._close_reader()
         self._index = LineIndex()
         self._indexing = True
+        self._index_progress = None
         self._row_cache.clear()
         self.top_line = self.top_seg = self.hoffset = 0
         self._last_query = ""
@@ -325,12 +336,28 @@ class TextPager(Widget, can_focus=True):
             self.app.call_from_thread(self._install, gen, None, LineIndex())
             return
         index = LineIndex()
+        last_report = 0
+
+        def on_chunk(scanned: int, size: int) -> None:
+            nonlocal last_report
+            if scanned - last_report >= PROGRESS_EVERY:
+                last_report = scanned
+                self.app.call_from_thread(self._show_index_progress, gen, scanned, size)
+
         if not index.scan(
-            reader, should_stop=lambda: worker.is_cancelled or gen != self._generation
+            reader,
+            should_stop=lambda: worker.is_cancelled or gen != self._generation,
+            on_chunk=on_chunk,
         ):
             reader.close()
             return
         self.app.call_from_thread(self._install, gen, reader, index)
+
+    def _show_index_progress(self, gen: int, scanned: int, size: int) -> None:
+        if gen != self._generation or not self._indexing:
+            return
+        self._index_progress = (scanned, size)
+        self._moved()
 
     def _install(self, gen: int, reader: _FileReader | None, index: LineIndex) -> None:
         if gen != self._generation:  # a newer load/unload superseded this one
@@ -341,6 +368,7 @@ class TextPager(Widget, can_focus=True):
         self._reader = reader
         self._index = index
         self._indexing = False
+        self._index_progress = None
         self._moved()
 
     def _close_reader(self) -> None:
@@ -374,10 +402,17 @@ class TextPager(Widget, can_focus=True):
     def line_count(self) -> int:
         return self._index.line_count
 
+    def _indexing_text(self) -> str:
+        if self._index_progress is None:
+            return "indexing…"
+        scanned, size = self._index_progress
+        pct = 0 if size == 0 else round(scanned * 100 / size)
+        return f"indexing… {pct}% ({scanned >> 20:,} / {size >> 20:,} MB)"
+
     def status(self) -> str:
         """Short position string for the app status bar."""
         if self._indexing:
-            return "indexing…"
+            return self._indexing_text()
         total = self._index.line_count
         pct = 0 if total <= 1 else round(self.top_line * 100 / (total - 1))
         wrap = "wrap" if self._wrap else "no-wrap"
@@ -455,7 +490,7 @@ class TextPager(Widget, can_focus=True):
             cache.move_to_end(key)
             return cache[key]
         text, cut = self._read_line_capped(line)
-        text = text.expandtabs(TABSTOP)
+        text = text.expandtabs(self._tabstop)
         if not self._wrap or width <= 0:
             rows = [text]
         else:
@@ -495,7 +530,7 @@ class TextPager(Widget, can_focus=True):
 
     def render(self) -> Text:
         if self._indexing:
-            return Text(" indexing…", style="dim")
+            return Text(f" {self._indexing_text()}", style="dim")
         width = self.size.width
         height = self.size.height
         query = self._last_query
@@ -616,30 +651,42 @@ class TextPager(Widget, can_focus=True):
             self._follow = False
             self._moved()
 
-    def _poll_follow(self) -> None:
+    def check_disk(self) -> str | None:
+        """Sync with the file on disk: extend the index if the file grew (the
+        viewport stays put), reload if it was rotated or truncated. Returns
+        "grew", "reloaded" or None. Called by the app's disk-change poll and
+        by follow mode."""
         reader = self._reader
         if reader is None or self.path is None:
-            return
+            return None
         try:
             disk = os.stat(self.path)
             rotated = disk.st_ino != os.fstat(reader.fd).st_ino
         except OSError:
-            return  # file temporarily missing (mid-rotation): try again later
+            return None  # file temporarily missing (mid-rotation): retry later
         if rotated or disk.st_size < self._index.scanned:
-            # Replaced or truncated: reopen from scratch, keep following.
-            self.app.notify("File rotated/truncated — reloading", timeout=2)
-            self.load(self.path)
-            self._follow = True
-            self._follow_timer = self.set_interval(FOLLOW_INTERVAL, self._poll_follow)
-            return
+            self.load(self.path)  # replaced or truncated: reopen from scratch
+            return "reloaded"
         if reader.refresh_size() > self._index.scanned:
-            # Index only the new tail, bounded per poll to keep the UI live.
+            # Index only the new tail, bounded per call to keep the UI live.
             already = self._index.scanned
             self._index.scan(
                 reader,
                 should_stop=lambda: self._index.scanned - already > FOLLOW_SCAN_BUDGET,
             )
             self._row_cache.clear()  # the previously-last line may have grown
+            self._moved()
+            return "grew"
+        return None
+
+    def _poll_follow(self) -> None:
+        result = self.check_disk()
+        if result == "reloaded":
+            # check_disk's load() resets follow — keep following the new file.
+            self.app.notify("File rotated/truncated — reloading", timeout=2)
+            self._follow = True
+            self._follow_timer = self.set_interval(FOLLOW_INTERVAL, self._poll_follow)
+        elif result == "grew":
             self.action_goto_end()
 
     # -- streaming search ----------------------------------------------------
@@ -758,6 +805,20 @@ class TextPager(Widget, can_focus=True):
         self._row_cache.clear()
         self._moved()
         return self._wrap
+
+    def on_mouse_scroll_down(self, event: events.MouseScrollDown) -> None:
+        event.stop()
+        self._wheel(3)
+
+    def on_mouse_scroll_up(self, event: events.MouseScrollUp) -> None:
+        event.stop()
+        self._wheel(-3)
+
+    def _wheel(self, amount: int) -> None:
+        if self._follow:  # scrolling away means "stop pinning me to the end"
+            self.stop_follow()
+            self.app.notify("Follow: off", timeout=1.5)
+        self.action_scroll_lines(amount)
 
     def on_key(self, event: events.Key) -> None:
         if self._follow and event.key != "F":

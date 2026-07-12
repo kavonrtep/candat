@@ -114,6 +114,12 @@ async def test_tree_icon_sets_and_cycle(tmp_path, monkeypatch):
         assert tree._icon_set == "ascii"
         assert tree.ICON_FILE == TREE_ICON_SETS["ascii"][2]
 
+    # the cycled choice was persisted, and the config now drives the default
+    from candat import config
+
+    assert 'tree_icons = "ascii"' in config.config_path().read_text()
+    assert resolve_icon_set(None) == "ascii"
+
 
 async def test_no_match_hides_everything(tmp_path):
     root = make_tree(tmp_path)

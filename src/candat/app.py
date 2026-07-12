@@ -575,6 +575,12 @@ class CandatApp(App[None]):
                     viewer.reload()
                     self.notify(f"Reloaded {editor.display_name}", timeout=1.5)
                 continue
+            if pane is not None and pane.is_pager:
+                # The pager watches the file itself: growth extends the index
+                # in place (viewport stays put); rotation/truncation reopens.
+                if pane.pager.check_disk() == "reloaded":
+                    self.notify(f"Reloaded {editor.display_name}", timeout=1.5)
+                continue
             if editor.disk_mtime is None:
                 continue  # text never loaded (e.g. CSV toggled but unloaded)
             if mtime == editor.disk_mtime:
@@ -1076,10 +1082,38 @@ def _write_crash_log(error: BaseException) -> Path:
     return log
 
 
+def _enable_faulthandler():
+    """Route hard crashes (SIGSEGV/SIGBUS/SIGABRT — e.g. a native tree-sitter
+    fault) to a log file; the Python-level crash handler can't catch those.
+    Returns the open file (kept for the process lifetime), or None."""
+    import faulthandler
+
+    directory = Path.home() / ".cache" / "candat"
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+        import datetime
+
+        stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        log = (directory / f"fault-{stamp}.log").open("w")
+        faulthandler.enable(log)
+    except OSError:
+        return None
+    return log
+
+
 def main() -> None:
+    fault_log = _enable_faulthandler()
     paths = [Path(arg) for arg in sys.argv[1:]]
     app = CandatApp(paths)
     app.run()
+    if fault_log is not None:  # clean exit: drop the (empty) fault log
+        name = fault_log.name
+        fault_log.close()
+        try:
+            if Path(name).stat().st_size == 0:
+                Path(name).unlink()
+        except OSError:
+            pass
     # Belt and braces: _handle_exception is a Textual internal, so if a future
     # Textual stops calling our override, recover the stored exception here.
     error = getattr(app, "_exception", None)

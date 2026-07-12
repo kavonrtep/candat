@@ -19,6 +19,14 @@ import pytest
 # -- environment -------------------------------------------------------------
 
 
+@pytest.fixture(autouse=True)
+def isolated_config(tmp_path_factory, monkeypatch):
+    """Keep tests away from the user's real config (and from writing to it —
+    cycle-tree-icons persists its choice)."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path_factory.mktemp("xdg")))
+    monkeypatch.delenv("CANDAT_TREE_ICONS", raising=False)
+
+
 @pytest.fixture
 def bash_shell(monkeypatch):
     """Point SHELL at bash with a plain prompt, for terminal tests."""
