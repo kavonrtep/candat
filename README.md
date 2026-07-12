@@ -77,7 +77,7 @@ Passing a directory sets the file-tree root; files are opened in buffers.
 | `C-c C-c` | send region or current line to the terminal REPL |
 | `C-x t` | toggle terminal panel (keys pass through raw; only `C-x` is reserved) |
 | `Shift+PgUp/PgDn` | terminal scrollback (typing snaps back) |
-| `C-c C-v` | cycle markdown preview: split / preview-only / off |
+| `C-c C-v` | alternate view: markdown preview cycle, or table view of the buffer |
 | `M-x`, `Ctrl+Shift+P` | command palette |
 | `C-g` / `Esc` | cancel chord / prompt / search / mark |
 
@@ -102,12 +102,16 @@ partial view can never overwrite the real file.
 `.csv` and `.tsv` files open in a table viewer (inspired by
 [csvlens](https://github.com/YS-L/csvlens)): a sticky header, row cursor,
 and original file line numbers in the gutter. Large files stream in as you
-scroll rather than loading whole. In the table: `/` (or `C-s`) searches —
-literal with smart case, the same dialect as everywhere else — with the
-matched text highlighted in the cells (`Esc` clears), `C-s`/`n` and
-`C-r`/`N` step to the next / previous match, `&` filters rows by regex,
-`g`/`G` jump to top/bottom. `C-c C-v` switches
-between the table and the raw text. The table is read-only.
+scroll rather than loading whole. And it isn't just for CSV: **any** buffer
+— a `.tab`, `.gff`, a log, even an unsaved one — switches to a table with
+`C-c C-v`. The delimiter is auto-detected; press `d` in the table to re-pick
+it (`,` `;` `|` `tab` `space` or any character) if the guess was wrong, and
+add suffixes to `table_suffixes` in the config to make more file types open
+as tables automatically. In the table: `/` (or `C-s`) searches — literal
+with smart case, the same dialect as everywhere else — with the matched text
+highlighted in the cells (`Esc` clears), `C-s`/`n` and `C-r`/`N` step to the
+next / previous match, `&` filters rows by regex, `g`/`G` jump to
+top/bottom. `C-c C-v` switches back to the raw text. The table is read-only.
 
 The file-tree icons are emoji by default; if your terminal renders them poorly
 (Konsole, some others), set `CANDAT_TREE_ICONS=nerd` (needs a Nerd Font) or
@@ -122,6 +126,7 @@ tree_icons = "emoji"     # or "nerd" / "ascii"; cycle-tree-icons saves here
 pager_wrap = false       # start the large-file pager with soft wrap on
 tabstop = 8              # tab width in the pager
 restore_session = true   # reopen last session's files (see below)
+table_suffixes = [".csv", ".tsv"]   # files that open straight into the table
 ```
 
 Starting candat without file arguments reopens the files you had open the

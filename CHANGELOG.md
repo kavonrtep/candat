@@ -15,6 +15,15 @@ changes).
   launch.
 - **Go to line in the editor (`M-g`)** — prompts for a line number and moves
   the cursor there (the pager already had its own `M-g`).
+- **Table view for any buffer.** `C-c C-v` is now a universal "alternate view"
+  key: markdown still cycles its preview; every other buffer — a `.tab`,
+  `.gff`, a log, even an unsaved one — toggles into the delimited table view.
+  The delimiter is auto-detected; `d` inside the table re-picks it (`,` `;`
+  `|` `tab` `space` or any character) and re-parses in place. Clean file-backed
+  buffers stream from disk as before; modified or untitled buffers are parsed
+  from the buffer text, so the table always matches what you see. A
+  `table_suffixes` config key extends which files open as tables
+  automatically, and `M-x table-view` forces the table even on markdown.
 - **macOS support.** The code was already POSIX-generic; CI now tests on
   macOS as well as Linux across Python 3.10 and 3.13.
 

@@ -11,6 +11,7 @@ labels.
 from __future__ import annotations
 
 import csv
+import io
 import re
 from pathlib import Path
 from typing import Iterator, TextIO
@@ -36,13 +37,39 @@ LOOKAHEAD = 100  # load more when the cursor gets this close to the end
 RESTYLE_MAX_ROWS = 50_000  # highlight pass over loaded rows stays bounded
 
 
-def sniff_dialect(path: Path) -> tuple[str, bool]:
-    """Returns (delimiter, has_header)."""
-    try:
-        sample = path.open(errors="replace").read(8192)
-    except OSError:
-        return ",", True
-    if path.suffix.lower() == ".tsv":
+# Names accepted by the delimiter prompt (`d` in the table), and how the
+# active delimiter is shown in the status bar.
+DELIMITER_ALIASES: dict[str, str] = {
+    "comma": ",",
+    "tab": "\t",
+    "\\t": "\t",
+    "semicolon": ";",
+    "pipe": "|",
+    "space": " ",
+}
+DELIMITER_LABELS: dict[str, str] = {"\t": "TAB", " ": "SPACE"}
+
+
+def delimiter_label(delimiter: str) -> str:
+    return DELIMITER_LABELS.get(delimiter, delimiter)
+
+
+def parse_delimiter(value: str) -> str | None:
+    """A delimiter from prompt input: a named alias or any single character."""
+    value = value.strip() if value.strip() else value  # keep a lone space
+    if not value:
+        return None
+    lowered = value.lower()
+    if lowered in DELIMITER_ALIASES:
+        return DELIMITER_ALIASES[lowered]
+    if len(value) == 1:
+        return value
+    return None
+
+
+def sniff_sample(sample: str, suffix: str = "") -> tuple[str, bool]:
+    """(delimiter, has_header) guessed from a text sample."""
+    if suffix == ".tsv":
         delimiter = "\t"
     else:
         try:
@@ -54,6 +81,15 @@ def sniff_dialect(path: Path) -> tuple[str, bool]:
     except csv.Error:
         has_header = True
     return delimiter, has_header
+
+
+def sniff_dialect(path: Path) -> tuple[str, bool]:
+    """Returns (delimiter, has_header)."""
+    try:
+        sample = path.open(errors="replace").read(8192)
+    except OSError:
+        return ",", True
+    return sniff_sample(sample, path.suffix.lower())
 
 
 class CsvTable(DataTable):
@@ -90,6 +126,8 @@ class CsvViewer(Vertical):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self._path: Path | None = None
+        self._text: str | None = None  # buffer-backed source (no file on disk)
+        self._display_name = ""
         self._delimiter = ","
         self._has_header = True
         self._columns: list[str] = []
@@ -116,14 +154,40 @@ class CsvViewer(Vertical):
 
     # -- streaming ---------------------------------------------------------
 
-    def open_file(self, path: Path) -> None:
+    def open_file(self, path: Path, delimiter: str | None = None) -> None:
         self._path = path
-        self._delimiter, self._has_header = sniff_dialect(path)
+        self._text = None
+        self._display_name = path.name
+        sniffed, self._has_header = sniff_dialect(path)
+        self._delimiter = delimiter or sniffed
         try:
             self.mtime = path.stat().st_mtime
         except OSError:
             self.mtime = None
         self._restart(keep_filter=False)
+
+    def open_text(self, text: str, name: str, delimiter: str | None = None) -> None:
+        """Table view over in-memory text — an unsaved or untitled buffer.
+        (No streaming needed: the text is already in memory.)"""
+        self._path = None
+        self._text = text
+        self._display_name = name
+        sniffed, self._has_header = sniff_sample(text[:8192])
+        self._delimiter = delimiter or sniffed
+        self.mtime = None  # nothing on disk to watch
+        self._restart(keep_filter=False)
+
+    def set_delimiter(self, delimiter: str) -> None:
+        """Re-parse the current source with a different delimiter (`d`),
+        keeping the cursor row where possible."""
+        if delimiter == self._delimiter:
+            return
+        self._delimiter = delimiter
+        cursor = self.table.cursor_row
+        self._restart(keep_filter=True)
+        if self.table.row_count:
+            self.table.move_cursor(row=min(cursor, self.table.row_count - 1))
+        self._update_status()
 
     def reload(self) -> None:
         """Re-read the file (external change), keeping filter and cursor."""
@@ -151,10 +215,13 @@ class CsvViewer(Vertical):
         self._line_no = 0
         self._exhausted = False
         self._highlighted = []  # coordinates died with the cleared table
-        if self._path is None:
+        if self._path is None and self._text is None:
             return
         try:
-            self._file = self._path.open(newline="", errors="replace")
+            if self._path is not None:
+                self._file = self._path.open(newline="", errors="replace")
+            else:
+                self._file = io.StringIO(self._text)
         except OSError as error:
             self.query_one("#csv-status", Static).update(f" cannot read: {error}")
             return
@@ -358,17 +425,18 @@ class CsvViewer(Vertical):
 
     def _update_status(self) -> None:
         table = self.table
-        name = self._path.name if self._path else ""
+        name = self._display_name or (self._path.name if self._path else "")
         row = table.cursor_row + 1 if table.row_count else 0
         more = "" if self._exhausted else "+"
         parts = [
             f" {name}",
             f"row {row}/{table.row_count}{more}",
             f"{len(self._columns)} cols",
+            f"sep {delimiter_label(self._delimiter)}",
         ]
         if self._filter is not None:
             parts.append(f"filter: {self._filter.pattern}")
-        parts.append("[dim]/ search  C-s/n next  C-r/N prev  & filter  G end[/]")
+        parts.append("[dim]/ search  C-s/n C-r/N next/prev  d delim  & filter  G end[/]")
         self.query_one("#csv-status", Static).update("   ".join(parts))
 
     @on(DataTable.RowHighlighted)
@@ -422,6 +490,30 @@ class CsvViewer(Vertical):
         elif key == "N":
             event.stop()
             self.search_prev()
+        elif key == "d":
+            # Re-parse with a different delimiter (the sniff guessed wrong).
+            event.stop()
+
+            def apply(value: str | None) -> None:
+                if not value:
+                    return
+                delimiter = parse_delimiter(value)
+                if delimiter is None:
+                    self.app.notify(
+                        f"Not a delimiter: {value!r} (use , ; | tab space or one character)",
+                        severity="error",
+                        timeout=3,
+                    )
+                    return
+                self.set_delimiter(delimiter)
+
+            self.app.push_screen(
+                PromptScreen(
+                    f"Delimiter [{delimiter_label(self._delimiter)}] "
+                    "(, ; | tab space or any character):"
+                ),
+                apply,
+            )
         elif key == "escape" and self.searching:
             # Esc (like C-g) clears the search highlight.
             event.stop()

@@ -72,7 +72,12 @@ KEY_HELP = """\
 | `C-g` | cancel search, back to start |
 | `Enter` | accept search position |
 
-## CSV / TSV table (`.csv`, `.tsv` files)
+## Table view (any delimited buffer)
+
+`.csv` / `.tsv` files open as a table automatically (extend with
+`table_suffixes` in the config). Any other buffer — a `.tab`, `.gff`, a log,
+even an unsaved one — switches to a table with `C-c C-v`; the delimiter is
+auto-detected and `d` re-picks it if the guess was wrong.
 
 | Key | Action |
 | --- | --- |
@@ -80,11 +85,14 @@ KEY_HELP = """\
 | `C-s` / `n` | next match |
 | `C-r` / `N` | previous match |
 | `C-g` / `Esc` | cancel search (clear the highlight) |
+| `d` | change the delimiter (`,` `;` `pipe` `tab` `space` or any character) |
 | `&` | filter rows by regex (empty clears) |
 | `g` / `G` | first row / load all and go to last |
 | `C-c C-v` | switch between table and raw text |
 
-The table is read-only; big files stream in as you scroll.
+The table is read-only; big files stream in as you scroll. A buffer with
+unsaved edits is parsed from the buffer text, so the table always matches
+what you see.
 
 ## Windows (splits)
 
@@ -129,7 +137,7 @@ shown up to their first 64 KB (marked with `…`).
 | `Shift+PgUp/PgDn` | terminal scrollback (typing snaps back) |
 | `C-x o` | cycle focus: tree → editor → terminal |
 | `/` (in file tree) | filter the tree by path; `Esc` clears |
-| `C-c C-v` | markdown preview: split / preview-only / off |
+| `C-c C-v` | alternate view: markdown preview cycle, or table view of any other buffer |
 | `M-x`, `Ctrl+Shift+P` | command palette |
 | `F1`, `C-x ?` | this help |
 

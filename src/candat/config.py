@@ -11,6 +11,8 @@ Recognised keys:
 - ``tabstop``: tab width in the pager
 - ``restore_session``: reopen the previous session's files when candat is
   started without file arguments
+- ``table_suffixes``: file suffixes that open straight into the table viewer
+  (any other buffer can still be switched to a table with ``C-c C-v``)
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ DEFAULTS: dict[str, object] = {
     "pager_wrap": False,
     "tabstop": 8,
     "restore_session": True,
+    "table_suffixes": [".csv", ".tsv"],
 }
 
 

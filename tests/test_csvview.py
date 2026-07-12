@@ -246,6 +246,79 @@ async def test_autoreload_in_table_mode(make_csv):
         assert viewer.table.row_count == 20
 
 
+async def test_any_buffer_toggles_to_table(tmp_path):
+    """C-c C-v turns a non-.csv file (tab-delimited .txt) into a table."""
+    path = tmp_path / "genes.txt"
+    path.write_text("chrom\tstart\tend\nchr1\t100\t200\nchr2\t300\t400\n")
+    async with open_app([path]) as (app, pilot):
+        pane = app.tabs.active_pane
+        assert not pane.has_class("-csv-table")  # .txt opens in the editor
+        await chord(pilot, "ctrl+c", "ctrl+v")
+        assert pane.has_class("-csv-table")
+        table = pane.csv.table
+        assert [str(c.label) for c in table.columns.values()] == ["chrom", "start", "end"]
+        assert [str(c) for c in table.get_row_at(0)] == ["chr1", "100", "200"]
+        await chord(pilot, "ctrl+c", "ctrl+v")  # and back to text
+        assert not pane.has_class("-csv-table")
+        assert app.active_editor.text.startswith("chrom\t")
+
+
+async def test_delimiter_picker_reparses(tmp_path):
+    """`d` in the table re-parses with the chosen delimiter."""
+    path = tmp_path / "odd.txt"
+    path.write_text("a:b:c\n1:2:3\n4:5:6\n")  # ':' is not in the sniffer set
+    async with open_app([path]) as (app, pilot):
+        pane = app.tabs.active_pane
+        await chord(pilot, "ctrl+c", "ctrl+v")
+        viewer = pane.csv
+        assert len(viewer._columns) == 1  # sniff fell back to comma: one column
+        await pilot.press("d")
+        await pilot.pause()
+        app.screen.query_one(Input).value = ":"
+        await pilot.press("enter")
+        await pilot.pause()
+        assert len(viewer._columns) == 3
+        assert [str(c) for c in viewer.table.get_row_at(0)] == ["1", "2", "3"]
+        # named aliases work too
+        viewer.set_delimiter("\t")
+        assert len(viewer._columns) == 1  # no tabs in this file
+        from candat.csvview import parse_delimiter
+
+        assert parse_delimiter("tab") == "\t"
+        assert parse_delimiter("space") == " "
+        assert parse_delimiter("pipe") == "|"
+        assert parse_delimiter("too long") is None
+
+
+async def test_modified_buffer_tables_from_text(tmp_path):
+    """A buffer with unsaved edits is parsed from the buffer text, not the
+    stale file on disk."""
+    path = tmp_path / "data.txt"
+    path.write_text("x;y\n1;2\n")
+    async with open_app([path]) as (app, pilot):
+        editor = app.active_editor
+        editor.text = "x;y\n1;2\n3;4\n"  # unsaved extra row
+        editor.modified = True
+        await chord(pilot, "ctrl+c", "ctrl+v")
+        pane = app.tabs.active_pane
+        assert pane.has_class("-csv-table")
+        assert pane.csv.table.row_count == 2  # both data rows, from the buffer
+
+
+async def test_table_suffixes_config_routes_on_open(tmp_path):
+    from candat import config
+
+    cfg = config.config_path()
+    cfg.parent.mkdir(parents=True, exist_ok=True)
+    cfg.write_text('table_suffixes = [".csv", ".tsv", ".bed"]\n')
+    path = tmp_path / "regions.bed"
+    path.write_text("chr1\t100\t200\nchr1\t500\t900\n")
+    async with open_app([path]) as (app, pilot):
+        pane = app.tabs.active_pane
+        await pilot.pause()
+        assert pane.has_class("-csv-table")  # .bed now opens as a table
+
+
 async def test_tsv_delimiter(sample_tsv):
     assert sniff_dialect(sample_tsv)[0] == "\t"
     async with open_app([sample_tsv]) as (app, pilot):

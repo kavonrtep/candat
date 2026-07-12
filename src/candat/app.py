@@ -16,7 +16,7 @@ from .buffers import BufferListScreen
 from . import config, recovery, session
 from .chords import CTRL_C_MAP, CTRL_X_MAP, ChordScreen
 from .commands import CandatCommands
-from .csvview import CSV_SUFFIXES
+from .csvview import CSV_SUFFIXES  # noqa: F401 — default set; config can extend
 from .dialogs import ConfirmScreen, PromptScreen
 from .editor import HEAD_LINES, EditorBuffer, classify_file, human_size
 from .help import HelpScreen
@@ -403,7 +403,7 @@ class CandatApp(App[None]):
             return
         # CSV/TSV files open in the table viewer; big text files in the pager;
         # neither loads the file into the editor.
-        is_csv = path.suffix.lower() in CSV_SUFFIXES and path.exists()
+        is_csv = path.suffix.lower() in self._table_suffixes() and path.exists()
         kind = classify_file(path)[0] if (path.exists() and not is_csv) else "normal"
         is_large = kind == "large"
         # Already open in any window? Switch to that window and tab.
@@ -453,6 +453,15 @@ class CandatApp(App[None]):
         if not path.exists():
             self.notify("(new file)", timeout=2)
 
+    def _table_suffixes(self) -> set[str]:
+        """Suffixes that open straight into the table viewer (configurable via
+        `table_suffixes`; defaults to .csv/.tsv)."""
+        values = config.load()["table_suffixes"]
+        suffixes = {
+            str(v).lower() for v in values if isinstance(v, str) and v.startswith(".")
+        }
+        return suffixes or CSV_SUFFIXES
+
     def _enter_pager(self, pane: BufferPane, path: Path) -> None:
         pane.enter_pager_mode(path)
         try:
@@ -499,19 +508,27 @@ class CandatApp(App[None]):
         )
 
     def _toggle_csv_view(self, pane: BufferPane) -> None:
-        """C-c C-v on a CSV buffer: switch between table view and text."""
+        """Switch a buffer between table view and text. Clean file-backed
+        buffers stream from disk (cheap for huge files); a modified or
+        untitled buffer is parsed from its own text, so the table always
+        shows what you see."""
         editor = pane.editor
-        assert editor.path is not None
         if pane.is_csv:
             def to_text() -> None:
-                if editor.disk_mtime is None and editor.path.exists():
+                if (
+                    editor.path is not None
+                    and editor.disk_mtime is None
+                    and editor.path.exists()
+                ):
                     editor.load(editor.path)
                     self._refresh_tab_label(editor)
                 pane.leave_csv_mode()
                 editor.focus()
                 self._refresh_status()
 
-            size = editor.path.stat().st_size if editor.path.exists() else 0
+            size = 0
+            if editor.path is not None and editor.path.exists():
+                size = editor.path.stat().st_size
             if editor.disk_mtime is None and size > 5_000_000:
                 def maybe(confirmed: bool | None) -> None:
                     if confirmed:
@@ -526,7 +543,12 @@ class CandatApp(App[None]):
                 )
             else:
                 to_text()
-        else:
+            return
+        # Entering table view.
+        if editor.binary:
+            self.notify("Not a text buffer", severity="warning", timeout=2)
+            return
+        if editor.path is not None and not editor.modified:
             try:
                 mtime = editor.path.stat().st_mtime
             except OSError:
@@ -535,23 +557,32 @@ class CandatApp(App[None]):
                 pane.enter_csv_mode(editor.path)
             else:
                 pane.show_table()
-            self._refresh_status()
+        else:
+            pane.enter_csv_mode_text(editor.text, editor.display_name)
+        self._refresh_status()
 
     def action_toggle_preview(self) -> None:
+        """C-c C-v: the buffer's alternate view — markdown cycles its preview,
+        everything else toggles the table view (any delimiter; `d` inside the
+        table re-picks it)."""
         pane = self.active_pane
-        if pane is None:
+        if pane is None or pane.is_pager:
             return
-        editor = pane.editor
-        if editor.path is not None and editor.path.suffix.lower() in CSV_SUFFIXES:
+        if pane.is_csv or pane.editor.language != "markdown":
             self._toggle_csv_view(pane)
-            return
-        if editor.language != "markdown":
-            self.notify("Not a markdown buffer", severity="warning", timeout=2)
             return
         next_mode = PREVIEW_MODES[
             (PREVIEW_MODES.index(pane.preview_mode) + 1) % len(PREVIEW_MODES)
         ]
         self.call_later(pane.set_preview_mode, next_mode)
+
+    def action_table_view(self) -> None:
+        """M-x table-view: toggle the table even where C-c C-v means
+        something else (a markdown buffer)."""
+        pane = self.active_pane
+        if pane is None or pane.is_pager:
+            return
+        self._toggle_csv_view(pane)
 
     # -- events --------------------------------------------------------------
 

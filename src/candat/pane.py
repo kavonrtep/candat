@@ -98,6 +98,11 @@ class BufferPane(TabPane):
         self.csv.open_file(path)
         self.show_table()
 
+    def enter_csv_mode_text(self, text: str, name: str) -> None:
+        """Table view over the buffer's own text (unsaved / untitled)."""
+        self.csv.open_text(text, name)
+        self.show_table()
+
     def show_table(self) -> None:
         """Show the (already-loaded) table without re-reading the file."""
         self.add_class(CSV_CLASS)
