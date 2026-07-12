@@ -167,6 +167,10 @@ async def test_tree_resize_splitter_drag_and_reset(tmp_path):
         splitter.on_click(SimpleNamespace(stop=lambda: None, chain=2))
         await pilot.pause()
         assert nav.styles.width.value == DEFAULT_TREE_WIDTH
+        # the splitter draws a │ rule, not the widget's name spilled vertically
+        rendered = splitter.render().plain
+        assert set(rendered) <= {"│", "\n"}
+        assert rendered.count("│") == max(1, splitter.size.height)
 
 
 async def test_no_match_hides_everything(tmp_path):

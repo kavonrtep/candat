@@ -154,16 +154,23 @@ class TreeSplitter(Widget):
     DEFAULT_CSS = """
     TreeSplitter {
         width: 1;
-        background: $panel;
+        color: $panel;
     }
     TreeSplitter:hover {
-        background: $primary;
+        color: $primary;
     }
     """
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self._dragging = False
+
+    def render(self):
+        # A │ on every row — without this, Textual's default rendering would
+        # spill the widget's name down the 1-cell column, one letter per line.
+        from rich.text import Text
+
+        return Text("\n".join(["│"] * max(1, self.size.height)), end="")
 
     def on_mouse_down(self, event: events.MouseDown) -> None:
         event.stop()
