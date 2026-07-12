@@ -111,6 +111,7 @@ the editor). Binary files show a placeholder.
 | `C-x w` | toggle wrap (off by default; truncated lines show `›`) |
 | `/` / `?` | new search forward / backward (smart case) |
 | `C-s` / `C-r`, `n` / `N` | next / previous match (all matches in view are highlighted) |
+| `C-g` / `Esc` | cancel search (clear the highlight) |
 | `M-g` | go to line |
 
 ## Panels & tools

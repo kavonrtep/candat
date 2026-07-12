@@ -10,6 +10,8 @@ changes).
 ### Added
 - **Match highlighting in the large-file pager.** Every occurrence of the
   search term in the visible area is highlighted, not just the current one.
+  `C-g` / `Esc` cancels the search and clears the highlight, so `C-s` prompts
+  for a new term instead of staying locked on the old one.
 
 ### Changed
 - **Consistent search-repeat with `C-s`.** In the pager and the CSV/TSV table,

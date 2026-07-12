@@ -152,6 +152,24 @@ async def test_highlight_all_visible_matches(tmp_path):
         await cm.__aexit__(None, None, None)
 
 
+async def test_cancel_search_clears_and_allows_new(tmp_path):
+    f = tmp_path / "c.txt"
+    f.write_text("".join(f"row {i} tok\n" for i in range(50)))
+    app, pilot, cm, pager = await open_pager(f)
+    try:
+        pager.search("tok")
+        assert pager.searching
+        assert any(s.style == pager.HIGHLIGHT for s in pager.render().spans)
+        pager.cancel_search()  # C-g / Escape
+        assert not pager.searching and pager.match_line is None
+        assert not any(s.style == pager.HIGHLIGHT for s in pager.render().spans)
+        # a fresh, different query works after cancelling
+        assert pager.search("row 7") is True
+        assert pager.top_line == 7
+    finally:
+        await cm.__aexit__(None, None, None)
+
+
 async def test_goto_percent(tmp_path):
     app, pilot, cm, pager = await open_pager(make_file(tmp_path))
     try:

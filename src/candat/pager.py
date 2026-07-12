@@ -391,6 +391,14 @@ class TextPager(Widget, can_focus=True):
         self._moved()
         return True
 
+    def cancel_search(self) -> None:
+        """Exit search: drop the query and clear the highlight, so the next
+        C-s prompts for a fresh term instead of repeating (C-g / Escape)."""
+        self._last_query = ""
+        self._match_byte = None
+        self.match_line = None
+        self._moved()
+
     def toggle_wrap(self) -> bool:
         self._wrap = not self._wrap
         self.top_seg = 0
@@ -403,3 +411,7 @@ class TextPager(Widget, can_focus=True):
         if event.key == "w":
             event.stop()
             self.toggle_wrap()
+        elif event.key == "escape" and self.searching:
+            # Escape (like C-g) exits search and clears the highlight.
+            event.stop()
+            self.cancel_search()
