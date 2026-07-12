@@ -4,40 +4,43 @@ from pathlib import Path
 
 import pytest
 
-from candat.editor import HEAD_LINES
+from candat.editor import classify_file, read_file_head
 from helpers import chord, open_app
 
 pytestmark = pytest.mark.asyncio
 
 
-async def test_large_file_opens_truncated_read_only(tmp_path):
-    big = tmp_path / "huge.log"
-    line = "x" * 80 + "\n"  # 81 bytes
-    big.write_text(line * 150_000)  # ~12 MB
-    assert big.stat().st_size > 10 * 1024 * 1024
-    async with open_app([big]) as (app, pilot):
-        editor = app.active_editor
-        assert editor.large and editor.truncated
-        assert editor.read_only
-        # Only the head is loaded, not all 150k lines.
-        assert editor.document.line_count <= HEAD_LINES + 2
+async def test_classify_file(tmp_path):
+    small = tmp_path / "s.txt"
+    small.write_text("hi\n")
+    assert classify_file(small)[0] == "normal"
 
-        # Saving is refused, so it can't overwrite the file with the head.
-        before = big.stat().st_size
-        await chord(pilot, "ctrl+x", "ctrl+s")
-        await pilot.pause()
-        assert big.stat().st_size == before
+    big = tmp_path / "big.txt"
+    big.write_text(("x" * 80 + "\n") * 150_000)  # ~12 MB
+    assert classify_file(big) == ("large", big.stat().st_size)
+
+    blob = tmp_path / "b.bin"
+    blob.write_bytes(bytes(range(256)) * 200)
+    assert classify_file(blob)[0] == "binary"
+
+    # read_file_head guards huge/binary too
+    assert read_file_head(big)[1] == "large"
+    assert read_file_head(blob)[1] == "binary"
 
 
-async def test_binary_file_not_shown(tmp_path):
+async def test_binary_file_not_shown_and_unsaveable(tmp_path):
     blob = tmp_path / "data.bin"
     blob.write_bytes(bytes(range(256)) * 200)  # contains NUL bytes
+    original = blob.read_bytes()
     async with open_app([blob]) as (app, pilot):
         editor = app.active_editor
-        assert editor.binary
-        assert editor.read_only
+        assert editor.binary and editor.read_only
         assert "binary" in editor.text.lower()
         assert editor.language is None
+        # save is refused → the file is untouched
+        await chord(pilot, "ctrl+x", "ctrl+s")
+        await pilot.pause()
+        assert blob.read_bytes() == original
 
 
 async def test_small_file_is_normal(tmp_path):
@@ -48,16 +51,6 @@ async def test_small_file_is_normal(tmp_path):
         assert not editor.large and not editor.binary and not editor.read_only
         assert editor.text == "x = 1\n"
         assert editor.language == "python"
-
-
-async def test_save_guard_raises_for_truncated(tmp_path):
-    big = tmp_path / "huge.txt"
-    big.write_text(("y" * 100 + "\n") * 120_000)  # ~12 MB
-    async with open_app([big]) as (app, pilot):
-        editor = app.active_editor
-        assert editor.truncated
-        with pytest.raises(ValueError):
-            editor.save()
 
 
 async def test_write_crash_log(tmp_path, monkeypatch):

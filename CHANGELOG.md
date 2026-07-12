@@ -7,6 +7,17 @@ changes).
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-07-12
+
+### Changed
+- **Large text files now open in a `less`-style pager** instead of the
+  read-only first-10,000-lines view. The file is memory-mapped with a sparse
+  line index (built in a background thread), so multi-GB files open instantly
+  with bounded memory and full navigation: scroll / page / `g` / `G`, wrap
+  toggle (`C-x w`, off by default — long lines truncate with a `›` marker and
+  scroll horizontally), streaming search (`C-s` / `C-r`, smart case, wraps)
+  with `n` / `N` to repeat. Binary files still open as a read-only placeholder.
+
 ## [0.8.0] - 2026-07-10
 
 ### Added

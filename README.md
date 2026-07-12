@@ -87,6 +87,8 @@ choices (navigable with arrows, Enter to pick) when more than one matches.
 Open files are watched for external changes: clean buffers reload
 automatically; buffers with local edits ask before discarding them.
 
+Very large text files open in a `less`-style pager (scroll, `g`/`G`, `C-s`/`C-r` search, `C-x w` wrap); binary files are shown as a placeholder.
+
 `.csv` and `.tsv` files open in a table viewer (inspired by
 [csvlens](https://github.com/YS-L/csvlens)): a sticky header, row cursor,
 and original file line numbers in the gutter. Large files stream in as you

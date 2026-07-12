@@ -15,9 +15,11 @@ from textual.widgets import TabPane
 
 from .csvview import CsvViewer
 from .editor import EditorBuffer
+from .pager import TextPager
 from .preview import PREVIEW_CLASSES, MarkdownPreview
 
 CSV_CLASS = "-csv-table"
+PAGER_CLASS = "-pager"
 
 
 class BufferPane(TabPane):
@@ -26,7 +28,7 @@ class BufferPane(TabPane):
         self._editor = editor
 
     def compose(self) -> ComposeResult:
-        yield Horizontal(self._editor, MarkdownPreview(), CsvViewer())
+        yield Horizontal(self._editor, MarkdownPreview(), CsvViewer(), TextPager())
 
     # -- children ------------------------------------------------------------
 
@@ -43,10 +45,18 @@ class BufferPane(TabPane):
         return self.query_one(CsvViewer)
 
     @property
+    def pager(self) -> TextPager:
+        return self.query_one(TextPager)
+
+    @property
     def visible_widget(self) -> Widget:
-        """The widget a user interacts with: the table in CSV mode, else the
-        editor."""
-        return self.csv.table if self.is_csv else self._editor
+        """The widget a user interacts with: table in CSV mode, pager in pager
+        mode, else the editor."""
+        if self.is_csv:
+            return self.csv.table
+        if self.is_pager:
+            return self.pager
+        return self._editor
 
     def focus_visible(self) -> None:
         self.visible_widget.focus()
@@ -95,6 +105,17 @@ class BufferPane(TabPane):
 
     def leave_csv_mode(self) -> None:
         self.remove_class(CSV_CLASS)
+
+    # -- large-file pager ----------------------------------------------------
+
+    @property
+    def is_pager(self) -> bool:
+        return self.has_class(PAGER_CLASS)
+
+    def enter_pager_mode(self, path: Path) -> None:
+        self.pager.load(path)
+        self.add_class(PAGER_CLASS)
+        self.pager.focus()
 
 
 def pane_of(widget: Widget | None) -> BufferPane | None:

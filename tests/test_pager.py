@@ -4,6 +4,7 @@ import pytest
 from textual.app import App, ComposeResult
 
 from candat.pager import TextPager
+from helpers import chord, open_app
 
 pytestmark = pytest.mark.asyncio
 
@@ -132,6 +133,28 @@ async def test_goto_percent(tmp_path):
         assert pager.top_line == 0
     finally:
         await cm.__aexit__(None, None, None)
+
+
+async def test_large_file_routes_to_pager(tmp_path):
+    big = tmp_path / "huge.log"
+    big.write_text(("x" * 80 + "\n") * 150_000)  # ~12 MB
+    async with open_app([big]) as (app, pilot):
+        pane = app.active_pane
+        pager = pane.pager
+        for _ in range(80):
+            await pilot.pause()
+            if not pager._indexing:
+                break
+        assert pane.is_pager
+        assert pane.editor.text == ""  # the file was NOT loaded into the editor
+        assert pager.line_count == 150_000
+        assert app.active_pane.visible_widget is pager
+        # C-x w toggles the pager's wrap
+        await chord(pilot, "ctrl+x", "w")
+        assert pager.wrap
+        # navigation works and reports position
+        pager.action_scroll_lines(5)
+        assert pager.top_line == 5
 
 
 async def test_empty_file(tmp_path):

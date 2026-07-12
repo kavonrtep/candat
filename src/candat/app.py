@@ -17,10 +17,11 @@ from .chords import CTRL_C_MAP, CTRL_X_MAP, ChordScreen
 from .commands import CandatCommands
 from .csvview import CSV_SUFFIXES
 from .dialogs import ConfirmScreen, PromptScreen
-from .editor import HEAD_LINES, EditorBuffer, human_size
+from .editor import HEAD_LINES, EditorBuffer, classify_file, human_size
 from .help import HelpScreen
 from .killring import KillRing
 from .nav import FileTree, NavPanel
+from .pager import TextPager
 from .pane import BufferPane, pane_of
 from .window import MAX_GROUPS, EditorGroup, group_of
 from .preview import PREVIEW_MODES
@@ -120,6 +121,17 @@ class CandatApp(App[None]):
         display: block;
     }
     TabPane.-csv-table EditorBuffer {
+        display: none;
+    }
+    TextPager {
+        display: none;
+        width: 1fr;
+        padding: 0 1;
+    }
+    TabPane.-pager TextPager {
+        display: block;
+    }
+    TabPane.-pager EditorBuffer {
         display: none;
     }
     StatusBar {
@@ -267,8 +279,11 @@ class CandatApp(App[None]):
         if path.is_dir():
             self.notify(f"{path} is a directory", severity="warning")
             return
-        # CSV/TSV files open in the table viewer without loading the text.
+        # CSV/TSV files open in the table viewer; big text files in the pager;
+        # neither loads the file into the editor.
         is_csv = path.suffix.lower() in CSV_SUFFIXES and path.exists()
+        kind = classify_file(path)[0] if (path.exists() and not is_csv) else "normal"
+        is_large = kind == "large"
         # Already open in any window? Switch to that window and tab.
         for pane in self.query(BufferPane):
             if pane.editor.path == path:
@@ -287,25 +302,35 @@ class CandatApp(App[None]):
             and not current.editor.text
         ):
             editor = current.editor
-            if path.exists() and not is_csv:
+            if path.exists() and not is_csv and not is_large:
                 editor.load(path)
                 self._announce_file(editor)
             else:
                 editor.path = path
                 editor._apply_language()
             self._refresh_tab_label(editor)
-            self._refresh_status()
             if is_csv:
                 current.enter_csv_mode(path)
                 self._refresh_status()
                 return
+            if is_large:
+                current.enter_pager_mode(path)
+                self.notify(f"Large file ({human_size(path.stat().st_size)}) — pager", timeout=4)
+                self._refresh_status()
+                return
+            self._refresh_status()
             if editor.language == "markdown":
                 await current.set_preview_mode("split")
             editor.focus()
             return
-        editor = await self._new_buffer(path, load_text=not is_csv)
-        if is_csv and (pane := pane_of(editor)) is not None:
+        editor = await self._new_buffer(path, load_text=not is_csv and not is_large)
+        pane = pane_of(editor)
+        if is_csv and pane is not None:
             pane.enter_csv_mode(path)
+            self._refresh_status()
+        elif is_large and pane is not None:
+            pane.enter_pager_mode(path)
+            self.notify(f"Large file ({human_size(path.stat().st_size)}) — pager", timeout=4)
             self._refresh_status()
         if not path.exists():
             self.notify("(new file)", timeout=2)
@@ -319,9 +344,20 @@ class CandatApp(App[None]):
         group.get_tab(pane.id).label = label
 
     def _refresh_status(self) -> None:
+        status = self.query_one(StatusBar)
+        pane = self.active_pane
+        if pane is not None and pane.is_pager:
+            where = pane.editor.path or pane.editor.display_name
+            status.update(f" %% {where}   {pane.pager.status()}   [dim]F1 help[/]")
+            self.sub_title = str(pane.editor.path or "")
+            return
         editor = self.active_editor
-        self.query_one(StatusBar).show(editor)
+        status.show(editor)
         self.sub_title = str(editor.path) if editor and editor.path else ""
+
+    @on(TextPager.Moved)
+    def _pager_moved(self, event: TextPager.Moved) -> None:
+        self._refresh_status()
 
     def _schedule_preview(self, editor: EditorBuffer) -> None:
         """Debounced live preview refresh while editing markdown."""
@@ -459,6 +495,12 @@ class CandatApp(App[None]):
             editor.action_toggle_comment()
 
     def action_toggle_soft_wrap(self) -> None:
+        pane = self.active_pane
+        if pane is not None and pane.is_pager:
+            wrapped = pane.pager.toggle_wrap()
+            self._refresh_status()
+            self.notify(f"Pager: {'wrap' if wrapped else 'no-wrap'}", timeout=1.5)
+            return
         editor = self.active_editor
         if editor is None:
             return
@@ -552,12 +594,33 @@ class CandatApp(App[None]):
         self.notify(f"Reloaded {editor.display_name}", timeout=1.5)
 
     def action_isearch_forward(self) -> None:
+        if self._pager_search(forward=True):
+            return
         if (editor := self.active_editor) is not None:
             editor.action_isearch_forward()
 
     def action_isearch_backward(self) -> None:
+        if self._pager_search(forward=False):
+            return
         if (editor := self.active_editor) is not None:
             editor.action_isearch_backward()
+
+    def _pager_search(self, forward: bool) -> bool:
+        """C-s/C-r in the pager: prompt for a query and search the file.
+        (n / N repeat the match inside the pager.) Returns True if handled."""
+        pane = self.active_pane
+        if pane is None or not pane.is_pager:
+            return False
+        pager = pane.pager
+
+        def run(query: str | None) -> None:
+            if query:
+                pager.search(query, forward)
+                self._refresh_status()
+
+        prompt = "Search:" if forward else "Search backward:"
+        self.push_screen(PromptScreen(prompt), run)
+        return True
 
     def action_find_file(self) -> None:
         editor = self.active_editor

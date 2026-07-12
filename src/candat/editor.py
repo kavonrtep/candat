@@ -122,6 +122,25 @@ def human_size(n: int) -> str:
     return f"{n} B"
 
 
+def classify_file(path: Path) -> tuple[str, int]:
+    """Cheaply classify a file for routing: ('normal'|'large'|'binary', size).
+    Only stats the size and sniffs the first few KB for NUL bytes."""
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return "normal", 0
+    try:
+        with path.open("rb") as handle:
+            head = handle.read(_BINARY_SNIFF)
+    except OSError:
+        return "normal", size
+    if b"\x00" in head:
+        return "binary", size
+    if size > LARGE_FILE_BYTES:
+        return "large", size
+    return "normal", size
+
+
 def read_file_head(path: Path) -> tuple[str, str, int]:
     """Read a file for display, guarding huge and binary files.
 

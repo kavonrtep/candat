@@ -17,6 +17,7 @@ from pathlib import Path
 from rich.text import Text
 from textual import events
 from textual.binding import Binding
+from textual.message import Message
 from textual.widget import Widget
 
 SPARSE_STEP = 512  # index a byte offset every 512 lines
@@ -64,9 +65,14 @@ class TextPager(Widget, can_focus=True):
         Binding("G,ctrl+end", "goto_end", "bottom", show=False),
         Binding("right,ctrl+f", "scroll_h(8)", "right", show=False),
         Binding("left,ctrl+b", "scroll_h(-8)", "left", show=False),
+        Binding("n", "search_next(1)", "next match", show=False),
+        Binding("N", "search_next(-1)", "prev match", show=False),
     ]
 
-    def __init__(self, path: Path, wrap: bool = False, **kwargs) -> None:
+    class Moved(Message):
+        """Posted when the viewport position changes (for the status bar)."""
+
+    def __init__(self, path: Path | None = None, wrap: bool = False, **kwargs) -> None:
         super().__init__(**kwargs)
         self.path = path
         self._wrap = wrap
@@ -83,8 +89,9 @@ class TextPager(Widget, can_focus=True):
     # -- lifecycle -----------------------------------------------------------
 
     def open(self) -> None:
-        """Open + mmap the file and build the index. Safe to call off-thread
-        except the mmap open, which is cheap."""
+        """Open + mmap the file and build the index. Runs on a worker thread."""
+        if self.path is None:
+            return
         size = self.path.stat().st_size
         if size == 0:
             self._index.complete = True
@@ -95,22 +102,55 @@ class TextPager(Widget, can_focus=True):
         self._index.build(self._mm)
         self._indexing = False
 
-    def on_mount(self) -> None:
+    def load(self, path: Path) -> None:
+        """(Re)point the pager at a file — for lazy use inside a pane."""
+        self._close_file()
+        self.path = path
+        self._index = LineIndex()
+        self._indexing = True
+        self.top_line = self.top_seg = self.hoffset = 0
+        self.match_line = None
         self.run_worker(self._open_worker, thread=True, exclusive=True)
+
+    def on_mount(self) -> None:
+        if self.path is not None:
+            self.run_worker(self._open_worker, thread=True, exclusive=True)
 
     def _open_worker(self) -> None:
         self.open()
-        self.app.call_from_thread(self.refresh)
+        self.app.call_from_thread(self._moved)
 
-    def on_unmount(self) -> None:
+    def _close_file(self) -> None:
         if self._mm is not None:
             self._mm.close()
+            self._mm = None
         if self._file is not None:
             self._file.close()
+            self._file = None
+
+    def on_unmount(self) -> None:
+        self._close_file()
 
     @property
     def line_count(self) -> int:
         return self._index.line_count
+
+    def status(self) -> str:
+        """Short position string for the app status bar."""
+        if self._indexing:
+            return "indexing…"
+        total = self._index.line_count
+        pct = 0 if total <= 1 else round(self.top_line * 100 / (total - 1))
+        wrap = "wrap" if self._wrap else "no-wrap"
+        return f"Ln {self.top_line + 1}/{total}  {pct}%  {wrap}"
+
+    def _moved(self) -> None:
+        self.refresh()
+        self.post_message(self.Moved())
+
+    def action_search_next(self, direction: int) -> None:
+        if self._last_query:
+            self.search_next(direction > 0)
 
     @property
     def wrap(self) -> bool:
@@ -176,8 +216,14 @@ class TextPager(Widget, can_focus=True):
             return Text(" indexing…", style="dim")
         width = self.size.width
         height = self.size.height
-        rows = self._viewport_rows(height, width)
-        return Text("\n".join(rows), no_wrap=True, overflow="crop", end="")
+        lines = []
+        for row in self._viewport_rows(height, width):
+            # Hard-crop each row to the width so nothing wraps (Rich's no_wrap
+            # alone doesn't); mark a truncated no-wrap line with a chevron.
+            if width > 0 and len(row) > width:
+                row = row[: width - 1] + "›"
+            lines.append(row)
+        return Text("\n".join(lines), no_wrap=True, end="")
 
     # -- navigation ----------------------------------------------------------
 
@@ -208,7 +254,7 @@ class TextPager(Widget, can_focus=True):
         for _ in range(abs(amount)):
             if not step():
                 break
-        self.refresh()
+        self._moved()
 
     def action_scroll_page(self, direction: int) -> None:
         self.action_scroll_lines(direction * max(1, self.size.height - 2))
@@ -216,11 +262,11 @@ class TextPager(Widget, can_focus=True):
     def action_scroll_h(self, amount: int) -> None:
         if not self._wrap:
             self.hoffset = max(0, self.hoffset + amount)
-            self.refresh()
+            self._moved()
 
     def action_goto_start(self) -> None:
         self.top_line = self.top_seg = self.hoffset = 0
-        self.refresh()
+        self._moved()
 
     def action_goto_end(self) -> None:
         self.top_line = max(0, self._index.line_count - 1)
@@ -231,7 +277,7 @@ class TextPager(Widget, can_focus=True):
     def goto_line(self, line: int) -> None:
         self.top_line = max(0, min(line, self._index.line_count - 1))
         self.top_seg = 0
-        self.refresh()
+        self._moved()
 
     def goto_percent(self, pct: float) -> None:
         pct = max(0.0, min(100.0, pct))
@@ -291,14 +337,14 @@ class TextPager(Widget, can_focus=True):
         self.top_line = line
         self.top_seg = 0
         self.hoffset = 0
-        self.refresh()
+        self._moved()
         return True
 
     def toggle_wrap(self) -> bool:
         self._wrap = not self._wrap
         self.top_seg = 0
         self.hoffset = 0
-        self.refresh()
+        self._moved()
         return self._wrap
 
     def on_key(self, event: events.Key) -> None:
