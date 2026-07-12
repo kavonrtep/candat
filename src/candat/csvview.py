@@ -33,6 +33,7 @@ BATCH_ROWS = 2000
 MAX_ROWS = 200_000  # hard cap on rows held in the table
 CELL_MAX = 120  # display truncation for very wide cells
 LOOKAHEAD = 100  # load more when the cursor gets this close to the end
+RESTYLE_MAX_ROWS = 50_000  # highlight pass over loaded rows stays bounded
 
 
 def sniff_dialect(path: Path) -> tuple[str, bool]:
@@ -99,6 +100,7 @@ class CsvViewer(Vertical):
         self._exhausted = False
         self._filter: re.Pattern | None = None
         self._last_search: re.Pattern | None = None
+        self._highlighted: list[Coordinate] = []  # cells styled by the search
         self.mtime: float | None = None
 
     @property
@@ -148,6 +150,7 @@ class CsvViewer(Vertical):
         self._loaded = 0
         self._line_no = 0
         self._exhausted = False
+        self._highlighted = []  # coordinates died with the cleared table
         if self._path is None:
             return
         try:
@@ -206,9 +209,13 @@ class CsvViewer(Vertical):
             self._line_no += 1
             if not self._match_filter(row):
                 continue
-            cells = [self._make_cell(cell) for cell in row[:width]]
-            cells += [self._make_cell("")] * (width - len(cells))
+            cells = [self._cell_value(cell) for cell in row[:width]]
+            cells += [""] * (width - len(cells))
+            row_index = table.row_count
             table.add_row(*cells, label=str(self._line_no))
+            for c, cell in enumerate(cells):
+                if isinstance(cell, Text):
+                    self._highlighted.append(Coordinate(row_index, c))
             self._loaded += 1
             added += 1
         self._update_status()
@@ -220,31 +227,58 @@ class CsvViewer(Vertical):
 
     # -- cell highlighting ---------------------------------------------------
 
-    def _make_cell(self, value: str) -> Text:
-        """A cell as a Rich Text (literal, no markup), with every occurrence of
-        the active search term highlighted."""
+    def _cell_value(self, value: str) -> str | Text:
+        """A cell for the table: truncated for display, and — only when it
+        matches the active search — promoted to a highlighted Rich Text.
+        Everything else stays a plain str, which is cheaper to hold by the
+        hundred thousand."""
         if len(value) > CELL_MAX:
             value = value[:CELL_MAX] + "…"
-        text = Text(value, no_wrap=True)
         regex = self._last_search
-        if regex is not None:
-            for m in regex.finditer(value):
-                if m.end() > m.start():
-                    text.stylize(HIGHLIGHT, m.start(), m.end())
+        if regex is not None and regex.search(value):
+            return self._make_cell(value)
+        return value
+
+    def _make_cell(self, value: str) -> Text:
+        """A (pre-truncated) matching cell as Rich Text (literal, no markup),
+        with every occurrence of the search term highlighted."""
+        text = Text(value, no_wrap=True)
+        for m in self._last_search.finditer(value):
+            if m.end() > m.start():
+                text.stylize(HIGHLIGHT, m.start(), m.end())
         return text
 
     def _restyle_loaded(self) -> None:
         """Re-highlight the already-loaded rows in place (keeps scroll/cursor);
-        rows still to stream in are highlighted as they load."""
+        rows still to stream in are highlighted as they load. Previous
+        highlights are reverted to plain strings first and only matching cells
+        are rewritten, so a search or cancel touches a handful of cells rather
+        than the whole table — and the pass is capped for huge loads."""
         table = self.table
-        cols = len(self._columns)
-        for r in range(table.row_count):
-            for c in range(cols):
-                cell = table.get_cell_at(Coordinate(r, c))
+        for coord in self._highlighted:
+            cell = table.get_cell_at(coord)
+            if isinstance(cell, Text):
+                table.update_cell_at(coord, cell.plain, update_width=False)
+        self._highlighted = []
+        regex = self._last_search
+        if regex is None:
+            return
+        limit = min(table.row_count, RESTYLE_MAX_ROWS)
+        for r in range(limit):
+            for c, cell in enumerate(table.get_row_at(r)):
                 value = cell.plain if isinstance(cell, Text) else str(cell)
-                table.update_cell_at(
-                    Coordinate(r, c), self._make_cell(value), update_width=False
-                )
+                if regex.search(value):
+                    coord = Coordinate(r, c)
+                    table.update_cell_at(
+                        coord, self._make_cell(value), update_width=False
+                    )
+                    self._highlighted.append(coord)
+        if table.row_count > limit:
+            self.app.notify(
+                f"Highlighting only the first {RESTYLE_MAX_ROWS:,} loaded rows",
+                severity="warning",
+                timeout=3,
+            )
 
     @property
     def searching(self) -> bool:

@@ -314,9 +314,7 @@ class CandatApp(App[None]):
                 self._refresh_status()
                 return
             if is_large:
-                current.enter_pager_mode(path)
-                self.notify(f"Large file ({human_size(path.stat().st_size)}) — pager", timeout=4)
-                self._refresh_status()
+                self._enter_pager(current, path)
                 return
             self._refresh_status()
             if editor.language == "markdown":
@@ -329,11 +327,18 @@ class CandatApp(App[None]):
             pane.enter_csv_mode(path)
             self._refresh_status()
         elif is_large and pane is not None:
-            pane.enter_pager_mode(path)
-            self.notify(f"Large file ({human_size(path.stat().st_size)}) — pager", timeout=4)
-            self._refresh_status()
+            self._enter_pager(pane, path)
         if not path.exists():
             self.notify("(new file)", timeout=2)
+
+    def _enter_pager(self, pane: BufferPane, path: Path) -> None:
+        pane.enter_pager_mode(path)
+        try:
+            size = human_size(path.stat().st_size)
+        except OSError:
+            size = "?"
+        self.notify(f"Large file ({size}) — pager", timeout=4)
+        self._refresh_status()
 
     def _refresh_tab_label(self, editor: EditorBuffer) -> None:
         pane = pane_of(editor)
@@ -475,6 +480,10 @@ class CandatApp(App[None]):
             self.pop_screen()
             return
         pane = self.active_pane
+        if pane is not None and pane.is_pager and pane.pager.following:
+            pane.pager.stop_follow()
+            self.notify("Follow: off", timeout=1.5)
+            return
         if pane is not None and pane.is_pager and pane.pager.searching:
             pane.pager.cancel_search()
             return
@@ -655,6 +664,35 @@ class CandatApp(App[None]):
                 self._refresh_status()
 
         self.push_screen(PromptScreen(f"Go to line (1-{pager.line_count}):"), run)
+
+    def action_pager_open_in_editor(self) -> None:
+        """`e` / `v` in the pager: load the whole file into a real editor
+        buffer anyway (the pager is read-only by design)."""
+        pane = self.active_pane
+        if pane is None or not pane.is_pager:
+            return
+        path = pane.pager.path
+        if path is None:
+            return
+        try:
+            size = human_size(path.stat().st_size)
+        except OSError as error:
+            self.notify(f"Cannot read {path.name}: {error}", severity="error")
+            return
+
+        def load(confirmed: bool | None) -> None:
+            if not confirmed:
+                return
+            pane.leave_pager_mode()
+            pane.editor.load(path, force_full=True)
+            self._refresh_tab_label(pane.editor)
+            self._refresh_status()
+            pane.editor.focus()
+
+        self.push_screen(
+            ConfirmScreen(f"Load all of {path.name} ({size}) into the editor?"),
+            load,
+        )
 
     def action_find_file(self) -> None:
         editor = self.active_editor
@@ -1042,6 +1080,14 @@ def main() -> None:
     paths = [Path(arg) for arg in sys.argv[1:]]
     app = CandatApp(paths)
     app.run()
+    # Belt and braces: _handle_exception is a Textual internal, so if a future
+    # Textual stops calling our override, recover the stored exception here.
+    error = getattr(app, "_exception", None)
+    if app._crash_log is None and error is not None:
+        try:
+            app._crash_log = _write_crash_log(error)
+        except Exception:
+            pass
     if app._crash_log is not None:
         print(
             f"\ncandat crashed — full traceback saved to {app._crash_log}",

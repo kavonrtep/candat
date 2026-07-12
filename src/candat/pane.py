@@ -120,6 +120,11 @@ class BufferPane(TabPane):
         # would hit the editor's isearch instead of the pager's).
         self.call_after_refresh(self.pager.focus)
 
+    def leave_pager_mode(self) -> None:
+        """Back to the editor view; the pager releases its file handle."""
+        self.remove_class(PAGER_CLASS)
+        self.pager.unload()
+
 
 def pane_of(widget: Widget | None) -> BufferPane | None:
     """The BufferPane containing a widget (e.g. an editor), or None."""

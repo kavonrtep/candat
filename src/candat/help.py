@@ -101,7 +101,8 @@ places at once. C-x C-f / C-x b in a window can point it at another file.
 ## Large files (pager)
 
 Text files over 10 MB open in a read-only `less`-style pager (not loaded into
-the editor). Binary files show a placeholder.
+the editor). Binary files show a placeholder. Extremely long single lines are
+shown up to their first 64 KB (marked with `…`).
 
 | Key | Action |
 | --- | --- |
@@ -112,8 +113,10 @@ the editor). Binary files show a placeholder.
 | `C-x w` | toggle wrap (off by default; truncated lines show `›`) |
 | `/` / `?` | new search forward / backward (smart case) |
 | `C-s` / `C-r`, `n` / `N` | next / previous match (all matches in view are highlighted) |
-| `C-g` / `Esc` | cancel search (clear the highlight) |
+| `C-g` / `Esc` | cancel search (clear the highlight) — or stop a running one |
 | `M-g` | go to line |
+| `F` | follow a growing file, like `less +F` (any key stops) |
+| `e` / `v` | load the whole file into the editor anyway (asks first) |
 
 ## Panels & tools
 

@@ -7,6 +7,47 @@ changes).
 
 ## [Unreleased]
 
+### Added
+- **Follow mode in the pager (`F`).** Like `less +F`: sticks to the end of a
+  growing file, indexing only the new tail; detects rotation/truncation and
+  reopens. Any key (or `C-g`) stops following.
+- **Open-in-editor escape hatch from the pager (`e` / `v`).** Loads the whole
+  file into a normal, editable buffer after a confirmation (syntax
+  highlighting stays off above the large-file threshold).
+
+### Changed
+- **Pager search no longer blocks the UI.** The scan runs chunk-by-chunk on a
+  worker thread, shows `searching…` in the status bar, and `C-g` / `Esc`
+  cancels it mid-flight. Backward repeat no longer rescans from the start of
+  the file on every keypress, and wrap-around no longer re-searches the region
+  already covered.
+- **The pager reads with `pread` instead of mmap.** A file truncated or
+  rotated underneath the pager (e.g. logrotate) now yields blank lines instead
+  of killing the process with SIGBUS.
+- **Long single lines are cheap.** A line is read at most 64 KB deep for
+  display (marked with `…`), so a gigabyte-long minified-JSON line no longer
+  costs a full decode and wrap pass per keystroke.
+- **Cell-accurate rendering in the pager.** Wrapping, cropping and horizontal
+  scrolling count terminal cells, so tabs (expanded to 8), CJK and emoji line
+  up; the `›` truncation chevron lands on the right column.
+- **Unicode smart case in the pager search.** A lowercase query now matches
+  uppercase content beyond ASCII (e.g. `čau` finds `ČAU`).
+- **A failed pager search resets the query**, so the next `C-s` prompts for a
+  fresh term instead of repeating the miss.
+- **CSV search highlighting is lighter.** Cells stay plain strings unless they
+  match the active search; starting/cancelling a search rewrites only the
+  matching cells (bounded at 50,000 rows) instead of every loaded cell.
+- **Large/binary read-only guard now lifts** when a reload brings the buffer
+  back to a normal, fully loaded state, instead of leaving it stuck read-only.
+
+### Fixed
+- **Re-pointing the pager at a new file no longer races the indexer** (the old
+  index build could hit a closed file handle); stale opens and searches are
+  discarded by generation.
+- **Crash logs survive Textual API changes**: the traceback is also recovered
+  in `main()` after the app exits, and Textual is pinned `<9` since the icon
+  cycling, isearch highlight and crash hook lean on internals.
+
 ## [0.10.0] - 2026-07-12
 
 ### Added

@@ -26,6 +26,30 @@ async def test_classify_file(tmp_path):
     # read_file_head guards huge/binary too
     assert read_file_head(big)[1] == "large"
     assert read_file_head(blob)[1] == "binary"
+    # force_full reads a large text file whole (but still guards binary)
+    text, kind, _ = read_file_head(big, force_full=True)
+    assert kind == "normal" and text.count("\n") == 150_000
+    assert read_file_head(blob, force_full=True)[1] == "binary"
+
+
+async def test_read_only_guard_lifts_when_file_shrinks(tmp_path):
+    """The large-file guard must not leave a buffer stuck read-only after a
+    reload brings it back to a normal, fully loaded state."""
+    blob = tmp_path / "b.bin"
+    blob.write_bytes(bytes(range(256)) * 200)  # binary → guarded placeholder
+    async with open_app([blob]) as (app, pilot):
+        editor = app.active_editor
+        assert editor.binary and editor.read_only
+        blob.write_text("plain text now\n")
+        editor.reload_from_disk()
+        assert not editor.binary and not editor.large
+        assert not editor.read_only  # the guard lifted
+        assert editor.text == "plain text now\n"
+        # ...but a user-toggled read-only on a normal file is left alone
+        editor.read_only = True
+        blob.write_text("still plain\n")
+        editor.reload_from_disk()
+        assert editor.read_only
 
 
 async def test_binary_file_not_shown_and_unsaveable(tmp_path):

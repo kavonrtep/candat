@@ -23,7 +23,7 @@ classifiers = [
 ]
 dependencies = [
     "pyte>=0.8.2",
-    "textual[syntax]>=8.2.8",
+    "textual[syntax]>=8.2.8,<9",
     "tree-sitter-language-pack>=1.12.2",
 ]
 

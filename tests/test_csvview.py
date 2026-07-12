@@ -97,6 +97,39 @@ async def test_search_highlights_cells_and_cancel_keeps_position(sample_csv):
         assert table.cursor_row == pos  # in-place restyle keeps the cursor
 
 
+async def test_cells_stay_plain_strings_without_search(make_csv):
+    """Cells are only promoted to Rich Text when they match an active search;
+    a plain load (and non-matching cells during a search) stays str, which is
+    what keeps a 200k-row table cheap."""
+    from rich.text import Text
+
+    async with open_app([make_csv(100, "plain.csv")]) as (app, pilot):
+        viewer = await open_viewer(app, pilot)
+        table = viewer.table
+        assert not any(
+            isinstance(cell, Text)
+            for r in range(table.row_count)
+            for cell in table.get_row_at(r)
+        )
+        viewer.search("item42")  # exactly one matching cell
+        await pilot.pause()
+        texts = [
+            cell
+            for r in range(table.row_count)
+            for cell in table.get_row_at(r)
+            if isinstance(cell, Text)
+        ]
+        assert len(texts) == 1 and texts[0].plain == "item42"
+        # rows streamed in later are styled as they load
+        viewer.load_all()
+        viewer.cancel_search()
+        assert not any(
+            isinstance(cell, Text)
+            for r in range(table.row_count)
+            for cell in table.get_row_at(r)
+        )
+
+
 async def test_filter_rows(make_csv):
     async with open_app([make_csv(300)]) as (app, pilot):
         viewer = await open_viewer(app, pilot)

@@ -142,23 +142,28 @@ def classify_file(path: Path) -> tuple[str, int]:
     return "normal", size
 
 
-def read_file_head(path: Path) -> tuple[str, str, int]:
+def read_file_head(path: Path, force_full: bool = False) -> tuple[str, str, int]:
     """Read a file for display, guarding huge and binary files.
 
     Returns (text, kind, size) where kind is 'normal', 'large' (only the head
-    was read), or 'binary' (not shown).
+    was read), or 'binary' (not shown). With `force_full`, a large text file
+    is read whole and reported 'normal' (the pager's open-in-editor escape
+    hatch); binary files are still guarded.
     """
     try:
         size = path.stat().st_size
     except OSError:
         return "", "normal", 0
-    to_read = size if size <= LARGE_FILE_BYTES else min(size, LARGE_HEAD_BYTES)
+    if force_full:
+        to_read = size
+    else:
+        to_read = size if size <= LARGE_FILE_BYTES else min(size, LARGE_HEAD_BYTES)
     with path.open("rb") as handle:
         data = handle.read(to_read)
     if b"\x00" in data[:_BINARY_SNIFF]:
         return f"[binary file — {human_size(size)} — not shown]\n", "binary", size
     text = data.decode("utf-8", errors="replace")
-    if size > LARGE_FILE_BYTES:
+    if not force_full and size > LARGE_FILE_BYTES:
         head = "\n".join(text.split("\n")[:HEAD_LINES])
         return head + "\n", "large", size
     return text, "normal", size
@@ -274,8 +279,11 @@ class EditorBuffer(TextArea):
             return
         self._search_highlight = query
         # The line cache key doesn't know about the query, so stale strips
-        # would hide the change — drop them and repaint.
-        self._line_cache.clear()
+        # would hide the change — drop them and repaint. (_line_cache is a
+        # Textual internal; degrade to a plain repaint if it disappears.)
+        cache = getattr(self, "_line_cache", None)
+        if cache is not None:
+            cache.clear()
         self.refresh()
 
     def clear_search_highlight(self) -> None:
@@ -359,18 +367,24 @@ class EditorBuffer(TextArea):
             self.language = language
 
     def _set_file_flags(self, kind: str, size: int) -> None:
+        was_guarded = self.binary or self.large
         self.binary = kind == "binary"
         self.large = kind == "large"
         self.truncated = self.large
         self.file_size = size
         # A truncated/binary view must be read-only — saving it would write
-        # only the head (or a placeholder) back over the real file.
-        if self.binary or self.large:
+        # only the head (or a placeholder) back over the real file. Lift the
+        # guard again when a reload brings the buffer back to a normal, fully
+        # loaded state (a user-toggled read-only is otherwise left alone).
+        guarded = self.binary or self.large
+        if guarded:
             self.read_only = True
+        elif was_guarded:
+            self.read_only = False
 
-    def load(self, path: Path) -> None:
+    def load(self, path: Path, force_full: bool = False) -> None:
         self.path = path
-        text, kind, size = read_file_head(path)
+        text, kind, size = read_file_head(path, force_full=force_full)
         self._set_file_flags(kind, size)
         self._syncing = True
         try:
@@ -383,7 +397,7 @@ class EditorBuffer(TextArea):
             self.disk_mtime = path.stat().st_mtime
         except OSError:
             self.disk_mtime = None
-        if self.binary or self.large:
+        if self.binary or self.large or (force_full and size > LARGE_FILE_BYTES):
             self.language = None  # skip highlighting a huge/binary buffer
         else:
             self._apply_language()
