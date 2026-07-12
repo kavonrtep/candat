@@ -101,8 +101,11 @@ partial view can never overwrite the real file.
 
 `.csv` and `.tsv` files open in a table viewer (inspired by
 [csvlens](https://github.com/YS-L/csvlens)): a sticky header, row cursor,
-and original file line numbers in the gutter. Large files stream in as you
-scroll rather than loading whole. And it isn't just for CSV: **any** buffer
+and original file line numbers in the gutter. There is **no row limit**:
+big files get a windowed table backed by a sparse index (built in the
+background — the table shows and scrolls immediately), so ten million rows
+cost the same as a hundred, `G` jumps straight to the last row, and search
+scans the whole file once and then steps match-to-match instantly. And it isn't just for CSV: **any** buffer
 — a `.tab`, `.gff`, a log, even an unsaved one — switches to a table with
 `C-c C-v`. The delimiter is auto-detected; press `d` in the table to re-pick
 it (`,` `;` `|` `tab` `space` or any character) if the guess was wrong, and

@@ -92,7 +92,11 @@ delimited file between pager and table without ever loading it whole.
 | `g` / `G` | first row / load all and go to last |
 | `C-c C-v` | switch between table and raw text |
 
-The table is read-only; big files stream in as you scroll. A buffer with
+The table is read-only. Small files use the classic table; big ones (or
+anything over ~200k rows) switch to a windowed table with **no row limit** —
+only the visible rows are read, so millions of rows scroll instantly, `G`
+jumps straight to the end, and search scans the whole file in the background
+(`n`/`N` then step through every match, with a match counter). A buffer with
 unsaved edits is parsed from the buffer text, so the table always matches
 what you see.
 

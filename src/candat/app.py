@@ -16,7 +16,8 @@ from .buffers import BufferListScreen
 from . import config, recovery, session
 from .chords import CTRL_C_MAP, CTRL_X_MAP, ChordScreen
 from .commands import CandatCommands
-from .csvview import CSV_SUFFIXES  # noqa: F401 — default set; config can extend
+from .bigtable import BigTable, has_quoted_newline
+from .csvview import CSV_SUFFIXES, MAX_ROWS  # default set; config can extend
 from .dialogs import ConfirmScreen, PromptScreen
 from .editor import (
     HEAD_LINES,
@@ -143,6 +144,16 @@ class CandatApp(App[None]):
         display: block;
     }
     TabPane.-pager EditorBuffer {
+        display: none;
+    }
+    BigTable {
+        display: none;
+        width: 1fr;
+    }
+    TabPane.-bigtable BigTable {
+        display: block;
+    }
+    TabPane.-bigtable EditorBuffer {
         display: none;
     }
     StatusBar {
@@ -438,8 +449,7 @@ class CandatApp(App[None]):
                 editor._apply_language()
             self._refresh_tab_label(editor)
             if is_csv:
-                current.enter_csv_mode(path)
-                self._refresh_status()
+                self._enter_table(current, path)
                 return
             if is_large:
                 self._enter_pager(current, path)
@@ -452,12 +462,36 @@ class CandatApp(App[None]):
         editor = await self._new_buffer(path, load_text=not is_csv and not is_large)
         pane = pane_of(editor)
         if is_csv and pane is not None:
-            pane.enter_csv_mode(path)
-            self._refresh_status()
+            self._enter_table(pane, path)
         elif is_large and pane is not None:
             self._enter_pager(pane, path)
         if not path.exists():
             self.notify("(new file)", timeout=2)
+
+    def _wants_bigtable(self, path: Path) -> bool:
+        """True when a file needs the windowed (unlimited-row) table: too big
+        for the classic DataTable by size or estimated row count. Files whose
+        sample shows quoted multi-line fields stay on the classic table — the
+        windowed index is line-based."""
+        try:
+            size = path.stat().st_size
+            with path.open("rb") as handle:
+                sample = handle.read(8192).decode("utf-8", "replace")
+        except OSError:
+            return False
+        if has_quoted_newline(sample):
+            return False
+        lines = sample.count("\n") or 1
+        est_rows = size / max(1, len(sample) / lines)
+        return size > LARGE_FILE_BYTES or est_rows > MAX_ROWS
+
+    def _enter_table(self, pane: BufferPane, path: Path) -> None:
+        """Table view for a file: windowed for huge files, classic otherwise."""
+        if self._wants_bigtable(path):
+            pane.enter_bigtable_mode(path)
+        else:
+            pane.enter_csv_mode(path)
+        self._refresh_status()
 
     def _table_suffixes(self) -> set[str]:
         """Suffixes that open straight into the table viewer (configurable via
@@ -493,12 +527,21 @@ class CandatApp(App[None]):
             status.update(f" %% {where}   {pane.pager.status()}   [dim]F1 help[/]")
             self.sub_title = str(pane.editor.path or "")
             return
+        if pane is not None and pane.is_bigtable:
+            where = pane.bigtable.path or pane.editor.display_name
+            status.update(f" %% {where}   big table   [dim]F1 help[/]")
+            self.sub_title = str(pane.bigtable.path or "")
+            return
         editor = self.active_editor
         status.show(editor)
         self.sub_title = str(editor.path) if editor and editor.path else ""
 
     @on(TextPager.Moved)
     def _pager_moved(self, event: TextPager.Moved) -> None:
+        self._refresh_status()
+
+    @on(BigTable.Moved)
+    def _bigtable_moved(self, event: BigTable.Moved) -> None:
         self._refresh_status()
 
     def _schedule_preview(self, editor: EditorBuffer) -> None:
@@ -527,8 +570,17 @@ class CandatApp(App[None]):
             if path is None:
                 return
             pane.leave_pager_mode()
-            pane.enter_csv_mode(path)
-            self._refresh_status()
+            self._enter_table(pane, path)
+            return
+        if pane.is_bigtable:
+            # Big table -> back to the pager (the file is huge by definition).
+            path = pane.bigtable.path
+            pane.leave_bigtable_mode()
+            if path is not None:
+                self._enter_pager(pane, path)
+            else:
+                editor.focus()
+                self._refresh_status()
             return
         if pane.is_csv:
             size = 0
@@ -572,6 +624,10 @@ class CandatApp(App[None]):
             self.notify("Not a text buffer", severity="warning", timeout=2)
             return
         if editor.path is not None and not editor.modified:
+            if self._wants_bigtable(editor.path):
+                pane.enter_bigtable_mode(editor.path)
+                self._refresh_status()
+                return
             try:
                 mtime = editor.path.stat().st_mtime
             except OSError:
@@ -591,7 +647,12 @@ class CandatApp(App[None]):
         pane = self.active_pane
         if pane is None:
             return
-        if pane.is_pager or pane.is_csv or pane.editor.language != "markdown":
+        if (
+            pane.is_pager
+            or pane.is_csv
+            or pane.is_bigtable
+            or pane.editor.language != "markdown"
+        ):
             self._toggle_csv_view(pane)
             return
         next_mode = PREVIEW_MODES[
@@ -665,6 +726,9 @@ class CandatApp(App[None]):
             return
         if pane is not None and pane.is_csv and pane.csv.searching:
             pane.csv.cancel_search()
+            return
+        if pane is not None and pane.is_bigtable and pane.bigtable.searching:
+            pane.bigtable.cancel_search()
             return
         editor = self.active_editor
         if editor is not None and editor.mark_active:

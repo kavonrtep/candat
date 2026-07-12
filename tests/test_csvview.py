@@ -307,8 +307,8 @@ async def test_modified_buffer_tables_from_text(tmp_path):
 
 async def test_pager_and_table_round_trip_on_large_file(tmp_path):
     """A large delimited file opens in the pager; C-c C-v switches to the
-    (streaming) table view, and C-c C-v again returns to the pager — never
-    loading the whole file into the editor."""
+    windowed (unlimited-row) table, and C-c C-v again returns to the pager —
+    never loading the whole file into the editor."""
     big = tmp_path / "huge_regions.txt"
     line = "chr1\t%d\t%d\tfeature%d\n"
     with big.open("w") as f:
@@ -318,14 +318,12 @@ async def test_pager_and_table_round_trip_on_large_file(tmp_path):
         pane = app.tabs.active_pane
         await pilot.pause()
         assert pane.is_pager  # routed to the pager by size
-        await chord(pilot, "ctrl+c", "ctrl+v")  # pager -> table
-        assert not pane.is_pager and pane.has_class("-csv-table")
-        table = pane.csv.table
-        assert str(table.get_row_at(0)[0]) == "chr1"
-        assert len(pane.csv._columns) == 4  # tab-sniffed
+        await chord(pilot, "ctrl+c", "ctrl+v")  # pager -> windowed table
+        assert not pane.is_pager and pane.is_bigtable
+        assert len(pane.bigtable._columns) == 4  # tab-sniffed
         assert app.active_editor.text == ""  # editor never loaded the file
         await chord(pilot, "ctrl+c", "ctrl+v")  # table -> back to the pager
-        assert pane.is_pager and not pane.has_class("-csv-table")
+        assert pane.is_pager and not pane.is_bigtable
         assert app.active_editor.text == ""
 
 

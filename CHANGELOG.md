@@ -27,6 +27,15 @@ changes).
   It works from the large-file pager too: both views stream, so `C-c C-v`
   flips a huge delimited file between pager and table (leaving the table on
   a large file returns to the pager, never a gigabyte editor load).
+- **No more 200k-row limit.** Large delimited files (by size or estimated
+  rows) open in a windowed table modelled on csvlens: a sparse row index is
+  built by a background worker while the table renders and scrolls
+  immediately, only the visible rows are ever read (row 3,000,000 fetches in
+  under a millisecond), and search scans the whole file once on a worker,
+  collecting every match — `n`/`N` then jump match-to-match instantly with a
+  `match k/M` counter. Same keys as the classic table (`/`, `C-s`/`C-r`,
+  `d`, `g`/`G`); the `&` row filter isn't available on windowed tables yet.
+  Files with quoted multi-line fields stay on the classic (exact) parser.
 - **macOS support.** The code was already POSIX-generic; CI now tests on
   macOS as well as Linux across Python 3.10 and 3.13.
 

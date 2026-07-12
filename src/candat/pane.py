@@ -13,6 +13,7 @@ from textual.containers import Horizontal
 from textual.widget import Widget
 from textual.widgets import TabPane
 
+from .bigtable import BigTable
 from .csvview import CsvViewer
 from .editor import EditorBuffer
 from .pager import TextPager
@@ -20,6 +21,7 @@ from .preview import PREVIEW_CLASSES, MarkdownPreview
 
 CSV_CLASS = "-csv-table"
 PAGER_CLASS = "-pager"
+BIGTABLE_CLASS = "-bigtable"
 
 
 class BufferPane(TabPane):
@@ -28,7 +30,9 @@ class BufferPane(TabPane):
         self._editor = editor
 
     def compose(self) -> ComposeResult:
-        yield Horizontal(self._editor, MarkdownPreview(), CsvViewer(), TextPager())
+        yield Horizontal(
+            self._editor, MarkdownPreview(), CsvViewer(), TextPager(), BigTable()
+        )
 
     # -- children ------------------------------------------------------------
 
@@ -49,13 +53,19 @@ class BufferPane(TabPane):
         return self.query_one(TextPager)
 
     @property
+    def bigtable(self) -> BigTable:
+        return self.query_one(BigTable)
+
+    @property
     def visible_widget(self) -> Widget:
         """The widget a user interacts with: table in CSV mode, pager in pager
-        mode, else the editor."""
+        mode, windowed table in big-table mode, else the editor."""
         if self.is_csv:
             return self.csv.table
         if self.is_pager:
             return self.pager
+        if self.is_bigtable:
+            return self.bigtable
         return self._editor
 
     def focus_visible(self) -> None:
@@ -129,6 +139,21 @@ class BufferPane(TabPane):
         """Back to the editor view; the pager releases its file handle."""
         self.remove_class(PAGER_CLASS)
         self.pager.unload()
+
+    # -- big table (windowed, unlimited rows) ----------------------------------
+
+    @property
+    def is_bigtable(self) -> bool:
+        return self.has_class(BIGTABLE_CLASS)
+
+    def enter_bigtable_mode(self, path: Path, delimiter: str | None = None) -> None:
+        self.bigtable.load(path, delimiter=delimiter)
+        self.add_class(BIGTABLE_CLASS)
+        self.call_after_refresh(self.bigtable.focus)
+
+    def leave_bigtable_mode(self) -> None:
+        self.remove_class(BIGTABLE_CLASS)
+        self.bigtable.unload()
 
 
 def pane_of(widget: Widget | None) -> BufferPane | None:
