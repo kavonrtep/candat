@@ -32,13 +32,18 @@ class PathInput(Input):
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self.programmatic = False  # set while we fill the value ourselves
+        # The exact value the last completion filled in. Its Input.Changed
+        # must not dismiss the choices list — matched by VALUE, not by a
+        # timing flag: a flag reset via call_after_refresh could fire before
+        # the queued Changed message was processed, so the completion's own
+        # change event would hide the list it had just shown (a rare,
+        # load-dependent race that hit CI).
+        self.pending_fill: str | None = None
 
     def _set_value(self, value: str) -> None:
-        self.programmatic = True
+        self.pending_fill = value
         self.value = value
         self.cursor_position = len(value)
-        self.call_after_refresh(setattr, self, "programmatic", False)
 
     async def _on_key(self, event: events.Key) -> None:
         screen = self.screen
@@ -194,7 +199,9 @@ class PromptScreen(ModalScreen[str | None]):
     def _changed(self, event: Input.Changed) -> None:
         # Real typing (not a completion fill) invalidates the shown choices.
         input_widget = self.query_one(Input)
-        if getattr(input_widget, "programmatic", False):
+        pending = getattr(input_widget, "pending_fill", None)
+        if pending is not None and event.value == pending:
+            input_widget.pending_fill = None  # the fill's own change event
             return
         if input_widget.has_focus:
             self.show_hint("")

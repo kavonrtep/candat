@@ -28,6 +28,9 @@ async def open_find_file(app, pilot, initial):
     inp = prompt.query_one(Input)
     inp.value = initial
     inp.cursor_position = len(initial)
+    # Drain the Input.Changed our direct value-set posted, so it can't land
+    # after a later Tab and dismiss whatever the completion just showed.
+    await pilot.pause()
     return prompt, inp
 
 
@@ -111,10 +114,6 @@ async def test_no_match_shows_hint(tmp_path):
     root = make_files(tmp_path)
     async with open_app() as (app, pilot):
         prompt, inp = await open_find_file(app, pilot, f"{root}/zzz")
-        # Drain the value-set's Input.Changed (which clears the hint) before
-        # Tab, so it can't land after Tab's show_hint and wipe "[no match]"
-        # (it did exactly that on the slower macOS runner).
-        await pilot.pause()
         await pilot.press("tab")
         assert await wait_for(pilot, lambda: "no match" in hint_of(prompt))
         assert not prompt.completions_visible

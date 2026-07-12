@@ -14,6 +14,12 @@ covered by the compatibility promise.
   width persists in the config (`tree_width`). Also `M-x tree-wider` /
   `tree-narrower`.
 
+### Fixed
+- **Tab completion could dismiss its own choices list.** Filling the common
+  prefix guarded against its own change event with a timing flag that could
+  reset before the event was processed; under load the list vanished right
+  after appearing. The fill's change event is now matched by value.
+
 ## [1.0.0] - 2026-07-12
 
 The 1.0 milestone is about trust, not features: saves can no longer corrupt
