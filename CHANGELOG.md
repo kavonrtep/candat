@@ -18,6 +18,10 @@ changes).
   scroll horizontally), streaming search (`C-s` / `C-r`, smart case, wraps)
   with `n` / `N` to repeat. Binary files still open as a read-only placeholder.
 
+### Fixed
+- Cycling file-tree icons (`cycle-tree-icons`) now updates the glyphs
+  immediately instead of only when the tree regains focus.
+
 ## [0.8.0] - 2026-07-10
 
 ### Added

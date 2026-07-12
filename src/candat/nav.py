@@ -69,7 +69,10 @@ class FileTree(DirectoryTree):
         order = list(TREE_ICON_SETS)
         nxt = order[(order.index(self._icon_set) + 1) % len(order)]
         self.apply_icons(nxt)
-        self.refresh(layout=True)
+        # refresh() alone leaves the cached node labels (icons only update when
+        # the tree next re-renders, e.g. on focus); _invalidate clears the line
+        # cache so the new icons show immediately.
+        self._invalidate()
         return nxt
 
     def filter_paths(self, paths: Iterable[Path]) -> Iterable[Path]:
