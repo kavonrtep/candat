@@ -1,4 +1,4 @@
-"""Candat: a terminal IDE with emacs keybindings."""
+"""Candat: a terminal text editor with emacs keybindings."""
 
 from .app import CandatApp, main
 

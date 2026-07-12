@@ -1,13 +1,14 @@
 # candat
 
-A terminal IDE with emacs keybindings, built on [Textual](https://textual.textualize.io/).
+A terminal text editor with emacs keybindings, built on [Textual](https://textual.textualize.io/).
 
 ## Demo
 
-![candat — a full IDE in your terminal](https://raw.githubusercontent.com/kavonrtep/candat/main/docs/brag.gif)
+![candat — a terminal editor with emacs keybindings](https://raw.githubusercontent.com/kavonrtep/candat/main/docs/brag.gif)
 
-A full IDE in the terminal — split windows on the same file, live markdown
-preview, a CSV viewer, and a real shell inside.
+More than the basics, without leaving the terminal — emacs keys, split windows
+on the same file, live markdown preview, a CSV table viewer, a large-file
+pager, and a real shell inside.
 
 ## Install
 

@@ -1,4 +1,4 @@
-"""Candat: a terminal IDE with emacs keybindings, built on Textual."""
+"""Candat: a terminal text editor with emacs keybindings, built on Textual."""
 
 from __future__ import annotations
 
