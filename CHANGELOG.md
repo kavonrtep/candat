@@ -7,6 +7,8 @@ covered by the compatibility promise.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-07-12
+
 ### Added
 - **Resizable file tree.** `C-x {` / `C-x }` narrow/widen the panel (emacs's
   shrink/enlarge-window-horizontally), the divider between tree and editors
