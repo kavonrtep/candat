@@ -87,18 +87,41 @@ choices (navigable with arrows, Enter to pick) when more than one matches.
 Open files are watched for external changes: clean buffers reload
 automatically; buffers with local edits ask before discarding them.
 
-Very large text files open in a `less`-style pager (scroll, `g`/`G`, `C-s`/`C-r` search, `C-x w` wrap); binary files are shown as a placeholder.
+Text files over 10 MB open in a `less`-style pager instead of the editor:
+the file stays on disk behind a sparse line index (multi-GB files open with
+bounded memory, with progress shown while indexing), and searches scan in
+the background so the UI never freezes — `C-g` cancels one mid-flight.
+Scroll (keys or mouse wheel), `g`/`G`, `/`/`?` and `C-s`/`C-r` search with
+all visible matches highlighted, `C-x w` wrap, `M-g` goto line. `F` follows
+a growing file like `less +F` (rotation-aware; any key stops), and `e`
+loads the file into a real editor buffer if you insist. Binary files are
+shown as a placeholder, and the truncated/binary views refuse to save, so a
+partial view can never overwrite the real file.
 
 `.csv` and `.tsv` files open in a table viewer (inspired by
 [csvlens](https://github.com/YS-L/csvlens)): a sticky header, row cursor,
 and original file line numbers in the gutter. Large files stream in as you
-scroll rather than loading whole. In the table: `/` (or `C-s`) searches,
-`n` repeats, `&` filters rows by regex, `g`/`G` jump to top/bottom. `C-c
-C-v` switches between the table and the raw text. The table is read-only.
+scroll rather than loading whole. In the table: `/` (or `C-s`) searches with
+the matched text highlighted in the cells (`Esc` clears), `n` repeats, `&`
+filters rows by regex, `g`/`G` jump to top/bottom. `C-c C-v` switches
+between the table and the raw text. The table is read-only.
 
 The file-tree icons are emoji by default; if your terminal renders them poorly
 (Konsole, some others), set `CANDAT_TREE_ICONS=nerd` (needs a Nerd Font) or
-`=ascii`, or switch live with `M-x cycle-tree-icons`.
+`=ascii`, or switch live with `M-x cycle-tree-icons` — the choice is saved.
+
+## Configuration
+
+`~/.config/candat/config.toml` (XDG aware), all keys optional:
+
+```toml
+tree_icons = "emoji"   # or "nerd" / "ascii"; cycle-tree-icons saves here
+pager_wrap = false     # start the large-file pager with soft wrap on
+tabstop = 8            # tab width in the pager
+```
+
+Crash logs (including hard faults caught by `faulthandler`) land in
+`~/.cache/candat/`.
 
 The file tree has a filter box on top: press `/` while the tree is focused (or click it), type to narrow the tree to files whose path matches, `Esc` clears it. The file tree opens files on selection. The default theme is `candat-light`
 (high-contrast dark-on-white). The markdown preview is linked: it follows

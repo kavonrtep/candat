@@ -13,11 +13,12 @@ wheels = [
 
 [[package]]
 name = "candat"
-version = "0.10.0"
+version = "0.11.0"
 source = { editable = "." }
 dependencies = [
     { name = "pyte" },
     { name = "textual", extra = ["syntax"] },
+    { name = "tomli", marker = "python_full_version < '3.11'" },
     { name = "tree-sitter-language-pack" },
 ]
 
@@ -31,6 +32,7 @@ dev = [
 requires-dist = [
     { name = "pyte", specifier = ">=0.8.2" },
     { name = "textual", extras = ["syntax"], specifier = ">=8.2.8,<9" },
+    { name = "tomli", marker = "python_full_version < '3.11'", specifier = ">=2" },
     { name = "tree-sitter-language-pack", specifier = ">=1.12.2" },
 ]
 

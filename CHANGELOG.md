@@ -7,6 +7,8 @@ changes).
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-07-12
+
 ### Added
 - **A config file: `~/.config/candat/config.toml`** (XDG aware). Keys:
   `tree_icons` (emoji / nerd / ascii — `cycle-tree-icons` now persists your

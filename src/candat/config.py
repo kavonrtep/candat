@@ -14,8 +14,12 @@ Recognised keys:
 from __future__ import annotations
 
 import os
-import tomllib
 from pathlib import Path
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10: tomllib landed in 3.11
+    import tomli as tomllib  # type: ignore[no-redef]
 
 DEFAULTS: dict[str, object] = {
     "tree_icons": "emoji",
