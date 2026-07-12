@@ -64,7 +64,7 @@ KEY_HELP = """\
 
 | Key | Action |
 | --- | --- |
-| `C-s` / `C-r` | incremental search forward / backward |
+| `C-s` / `C-r` | incremental search forward / backward (all visible matches highlighted) |
 | `C-s C-s` | repeat last search |
 | `M-%` | query-replace: `y` replace, `n` skip, `!` all, `q` stop |
 | `C-x g` | search project tree (regex; Enter jumps to match) |
@@ -75,8 +75,9 @@ KEY_HELP = """\
 
 | Key | Action |
 | --- | --- |
-| `/`, `C-s` | search rows (regex) |
-| `n` | next match |
+| `/` | search rows (regex); matches are highlighted in the cells |
+| `C-s` / `n` | next match |
+| `C-g` / `Esc` | cancel search (clear the highlight) |
 | `&` | filter rows by regex (empty clears) |
 | `g` / `G` | first row / load all and go to last |
 | `C-c C-v` | switch between table and raw text |

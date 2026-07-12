@@ -12,6 +12,14 @@ changes).
   search term in the visible area is highlighted, not just the current one.
   `C-g` / `Esc` cancels the search and clears the highlight, so `C-s` prompts
   for a new term instead of staying locked on the old one.
+- **All-match highlighting in the editor's incremental search.** While `C-s` /
+  `C-r` is active, every occurrence in the visible area is highlighted (the
+  current match still rides the selection); the highlight clears when the
+  search ends.
+- **Match highlighting in the CSV/TSV table.** Search (`/`) highlights the
+  matched text inside the cells, not just the row cursor; new rows are
+  highlighted as they stream in, and `C-g` / `Esc` clears it in place without
+  losing your scroll position.
 
 ### Changed
 - **Consistent search-repeat with `C-s`.** In the pager and the CSV/TSV table,

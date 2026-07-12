@@ -478,6 +478,9 @@ class CandatApp(App[None]):
         if pane is not None and pane.is_pager and pane.pager.searching:
             pane.pager.cancel_search()
             return
+        if pane is not None and pane.is_csv and pane.csv.searching:
+            pane.csv.cancel_search()
+            return
         editor = self.active_editor
         if editor is not None and editor.mark_active:
             editor.deactivate_mark()

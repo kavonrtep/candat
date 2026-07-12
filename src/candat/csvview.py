@@ -15,11 +15,16 @@ import re
 from pathlib import Path
 from typing import Iterator, TextIO
 
+from rich.style import Style
+from rich.text import Text
 from textual import events, on
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
+from textual.coordinate import Coordinate
 from textual.widgets import DataTable, Static
+
+HIGHLIGHT = Style(bgcolor="yellow", color="black")
 
 CSV_SUFFIXES = {".csv", ".tsv"}
 
@@ -201,11 +206,8 @@ class CsvViewer(Vertical):
             self._line_no += 1
             if not self._match_filter(row):
                 continue
-            cells = [
-                (cell[:CELL_MAX] + "…") if len(cell) > CELL_MAX else cell
-                for cell in row[:width]
-            ]
-            cells += [""] * (width - len(cells))
+            cells = [self._make_cell(cell) for cell in row[:width]]
+            cells += [self._make_cell("")] * (width - len(cells))
             table.add_row(*cells, label=str(self._line_no))
             self._loaded += 1
             added += 1
@@ -215,6 +217,46 @@ class CsvViewer(Vertical):
     def load_all(self) -> None:
         while not self._exhausted:
             self.load_more(50_000)
+
+    # -- cell highlighting ---------------------------------------------------
+
+    def _make_cell(self, value: str) -> Text:
+        """A cell as a Rich Text (literal, no markup), with every occurrence of
+        the active search term highlighted."""
+        if len(value) > CELL_MAX:
+            value = value[:CELL_MAX] + "…"
+        text = Text(value, no_wrap=True)
+        regex = self._last_search
+        if regex is not None:
+            for m in regex.finditer(value):
+                if m.end() > m.start():
+                    text.stylize(HIGHLIGHT, m.start(), m.end())
+        return text
+
+    def _restyle_loaded(self) -> None:
+        """Re-highlight the already-loaded rows in place (keeps scroll/cursor);
+        rows still to stream in are highlighted as they load."""
+        table = self.table
+        cols = len(self._columns)
+        for r in range(table.row_count):
+            for c in range(cols):
+                cell = table.get_cell_at(Coordinate(r, c))
+                value = cell.plain if isinstance(cell, Text) else str(cell)
+                table.update_cell_at(
+                    Coordinate(r, c), self._make_cell(value), update_width=False
+                )
+
+    @property
+    def searching(self) -> bool:
+        return self._last_search is not None
+
+    def cancel_search(self) -> None:
+        """Drop the search term and clear the cell highlighting (C-g / Esc)."""
+        if self._last_search is None:
+            return
+        self._last_search = None
+        self._restyle_loaded()
+        self._update_status()
 
     # -- search and filter ---------------------------------------------------
 
@@ -232,6 +274,7 @@ class CsvViewer(Vertical):
             self.app.notify(f"Bad regex: {pattern}", severity="error", timeout=2)
             return
         self._last_search = regex
+        self._restyle_loaded()  # highlight matches in the rows already on screen
         self.search_next()
 
     def search_next(self) -> None:
@@ -318,6 +361,10 @@ class CsvViewer(Vertical):
         elif key == "n":
             event.stop()
             self.search_next()
+        elif key == "escape" and self.searching:
+            # Esc (like C-g) clears the search highlight.
+            event.stop()
+            self.cancel_search()
         elif key == "ampersand":
             event.stop()
             event.prevent_default()

@@ -25,7 +25,7 @@ async def test_csv_opens_in_table_mode_without_loading_text(sample_csv):
         table = viewer.table
         assert [str(c.label) for c in table.columns.values()] == ["id", "name", "value"]
         assert table.row_count == 50
-        assert list(table.get_row_at(0)) == ["1", "item1", "10"]
+        assert [str(c) for c in table.get_row_at(0)] == ["1", "item1", "10"]
         # The text buffer stays empty: no giant file was loaded.
         assert app.active_editor.text == ""
         assert app.focused is table
@@ -65,6 +65,36 @@ async def test_search_streams_beyond_loaded_rows(make_csv):
         await pilot.press("n")
         await pilot.pause()
         assert table.cursor_row == row_before
+
+
+async def test_search_highlights_cells_and_cancel_keeps_position(sample_csv):
+    from rich.text import Text
+
+    from candat.csvview import HIGHLIGHT
+
+    async with open_app([sample_csv]) as (app, pilot):
+        viewer = await open_viewer(app, pilot)
+        table = viewer.table
+
+        def highlighted_cells() -> int:
+            return sum(
+                1
+                for r in range(table.row_count)
+                for cell in table.get_row_at(r)
+                if isinstance(cell, Text)
+                and any(s.style == HIGHLIGHT for s in cell.spans)
+            )
+
+        assert highlighted_cells() == 0
+        viewer.search("item")  # every name cell contains 'item'
+        await pilot.pause()
+        assert viewer.searching and highlighted_cells() == 50
+        pos = table.cursor_row
+        viewer.cancel_search()  # C-g / Esc
+        await pilot.pause()
+        assert not viewer.searching
+        assert highlighted_cells() == 0
+        assert table.cursor_row == pos  # in-place restyle keeps the cursor
 
 
 async def test_filter_rows(make_csv):
@@ -130,4 +160,4 @@ async def test_tsv_delimiter(sample_tsv):
     assert sniff_dialect(sample_tsv)[0] == "\t"
     async with open_app([sample_tsv]) as (app, pilot):
         viewer = await open_viewer(app, pilot)
-        assert list(viewer.table.get_row_at(0)) == ["1", "2", "3"]
+        assert [str(c) for c in viewer.table.get_row_at(0)] == ["1", "2", "3"]
