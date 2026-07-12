@@ -7,6 +7,8 @@ changes).
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-07-12
+
 ### Added
 - **Session restore.** Starting `candat` without file arguments reopens the
   files you had open the last time you quit in that directory — tab order,
