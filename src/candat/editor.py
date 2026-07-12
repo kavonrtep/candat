@@ -8,6 +8,9 @@ between buffers.
 
 from __future__ import annotations
 
+import os
+import stat
+import tempfile
 from pathlib import Path
 
 from rich.style import Style
@@ -135,38 +138,110 @@ def classify_file(path: Path) -> tuple[str, int]:
             head = handle.read(_BINARY_SNIFF)
     except OSError:
         return "normal", size
-    if b"\x00" in head:
+    # UTF-16 text is full of NUL bytes; a BOM means it's text, not binary.
+    utf16 = head[:2] in (b"\xff\xfe", b"\xfe\xff")
+    if not utf16 and b"\x00" in head:
         return "binary", size
     if size > LARGE_FILE_BYTES:
         return "large", size
     return "normal", size
 
 
-def read_file_head(path: Path, force_full: bool = False) -> tuple[str, str, int]:
+def decode_text(data: bytes) -> tuple[str, str]:
+    """Decode file bytes losslessly, returning (text, encoding).
+
+    Honours a UTF-8 or UTF-16 byte-order mark, then tries UTF-8, and finally
+    falls back to latin-1 — which maps every one of the 256 byte values, so it
+    round-trips *any* byte sequence back to the exact same bytes on save. That
+    means a non-UTF-8 file is never silently corrupted; at worst it shows as
+    mojibake, and re-encoding with the recorded encoding writes it back intact.
+    """
+    if data.startswith(b"\xef\xbb\xbf"):
+        return data[3:].decode("utf-8", "replace"), "utf-8-sig"
+    if data[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        try:
+            return data.decode("utf-16"), "utf-16"
+        except UnicodeDecodeError:
+            pass
+    try:
+        return data.decode("utf-8"), "utf-8"
+    except UnicodeDecodeError:
+        return data.decode("latin-1"), "latin-1"
+
+
+def detect_newline(text: str) -> str:
+    """The file's dominant line ending, preserved across an edit/save cycle."""
+    if "\r\n" in text:
+        return "\r\n"
+    if "\r" in text:
+        return "\r"
+    return "\n"
+
+
+def normalize_newlines(text: str) -> str:
+    """Collapse CR/CRLF to LF for the in-memory buffer (Textual expects LF);
+    the original ending is recorded separately and restored on save."""
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def atomic_write_bytes(path: Path, data: bytes) -> None:
+    """Write `data` to `path` atomically: a temp file in the same directory,
+    fsync'd, then renamed over the target. A crash, full disk, or kill
+    mid-write leaves the original file intact rather than truncated."""
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    tmp_path = Path(tmp)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        try:  # keep the existing file's permission bits (mkstemp is 0600)
+            os.chmod(tmp_path, stat.S_IMODE(path.stat().st_mode))
+        except OSError:
+            pass
+        os.replace(tmp_path, path)
+    except BaseException:
+        try:
+            tmp_path.unlink()
+        except OSError:
+            pass
+        raise
+
+
+def read_file_head(
+    path: Path, force_full: bool = False
+) -> tuple[str, str, int, str, str]:
     """Read a file for display, guarding huge and binary files.
 
-    Returns (text, kind, size) where kind is 'normal', 'large' (only the head
-    was read), or 'binary' (not shown). With `force_full`, a large text file
-    is read whole and reported 'normal' (the pager's open-in-editor escape
-    hatch); binary files are still guarded.
+    Returns (text, kind, size, encoding, newline) where kind is 'normal',
+    'large' (only the head was read), or 'binary' (not shown). `text` is
+    newline-normalised to LF; `encoding` and `newline` record how to write it
+    back unchanged. With `force_full`, a large text file is read whole and
+    reported 'normal' (the pager's open-in-editor escape hatch); binary files
+    are still guarded.
     """
     try:
         size = path.stat().st_size
     except OSError:
-        return "", "normal", 0
+        return "", "normal", 0, "utf-8", "\n"
     if force_full:
         to_read = size
     else:
         to_read = size if size <= LARGE_FILE_BYTES else min(size, LARGE_HEAD_BYTES)
     with path.open("rb") as handle:
         data = handle.read(to_read)
-    if b"\x00" in data[:_BINARY_SNIFF]:
-        return f"[binary file — {human_size(size)} — not shown]\n", "binary", size
-    text = data.decode("utf-8", errors="replace")
+    # A UTF-16 BOM means the NUL bytes are text, not a binary signature.
+    utf16 = data[:2] in (b"\xff\xfe", b"\xfe\xff")
+    if not utf16 and b"\x00" in data[:_BINARY_SNIFF]:
+        placeholder = f"[binary file — {human_size(size)} — not shown]\n"
+        return placeholder, "binary", size, "utf-8", "\n"
+    raw_text, encoding = decode_text(data)
+    newline = detect_newline(raw_text)
+    text = normalize_newlines(raw_text)
     if not force_full and size > LARGE_FILE_BYTES:
         head = "\n".join(text.split("\n")[:HEAD_LINES])
-        return head + "\n", "large", size
-    return text, "normal", size
+        return head + "\n", "large", size, encoding, newline
+    return text, "normal", size, encoding, newline
 
 
 # Meta (M-) commands: key -> editor action. Dispatched from _on_key so they
@@ -188,6 +263,7 @@ META_ACTIONS: dict[str, str] = {
     "x": "app.command_palette",  # M-x (also via ESC x)
     "semicolon": "toggle_comment",  # M-;
     "percent_sign": "app.query_replace",  # M-%
+    "g": "app.goto_line",  # M-g
 }
 
 # Line-comment prefix per language (M-;). Languages without a line-comment
@@ -260,6 +336,9 @@ class EditorBuffer(TextArea):
         self.truncated = False  # large: only the head was loaded
         self.binary = False
         self.file_size = 0
+        # How to write the buffer back exactly as it came in.
+        self.encoding = "utf-8"
+        self.newline = "\n"
         # Other views of the same buffer (C-x 2 / C-x 3 of the same file).
         self.links: list["EditorBuffer"] = []
         self._syncing = False
@@ -391,7 +470,11 @@ class EditorBuffer(TextArea):
 
     def load(self, path: Path, force_full: bool = False) -> None:
         self.path = path
-        text, kind, size = read_file_head(path, force_full=force_full)
+        text, kind, size, encoding, newline = read_file_head(
+            path, force_full=force_full
+        )
+        self.encoding = encoding
+        self.newline = newline
         self._set_file_flags(kind, size)
         self._syncing = True
         try:
@@ -414,17 +497,25 @@ class EditorBuffer(TextArea):
         its own cursor and scroll position (clamped)."""
         if self.path is None or not self.path.exists():
             return
-        text, kind, size = read_file_head(self.path)
+        text, kind, size, encoding, newline = read_file_head(self.path)
         try:
             mtime = self.path.stat().st_mtime
         except OSError:
             mtime = None
         for view in [self, *self.links]:
-            view._reload_text(text, mtime, kind, size)
+            view._reload_text(text, mtime, kind, size, encoding, newline)
 
     def _reload_text(
-        self, text: str, mtime: float | None, kind: str = "normal", size: int = 0
+        self,
+        text: str,
+        mtime: float | None,
+        kind: str = "normal",
+        size: int = 0,
+        encoding: str = "utf-8",
+        newline: str = "\n",
     ) -> None:
+        self.encoding = encoding
+        self.newline = newline
         self._set_file_flags(kind, size)
         sel = self.selection
         scroll = self.scroll_y
@@ -457,7 +548,17 @@ class EditorBuffer(TextArea):
             self._apply_language()
         if self.path is None:
             raise ValueError("buffer has no file name")
-        self.path.write_text(self.text)
+        text = self.text
+        if self.newline != "\n":
+            text = text.replace("\n", self.newline)
+        try:
+            data = text.encode(self.encoding)
+        except UnicodeEncodeError as error:
+            raise ValueError(
+                f"can't save as {self.encoding}: {error.reason} "
+                f"(character {error.object[error.start:error.end]!r})"
+            ) from error
+        atomic_write_bytes(self.path, data)
         self.modified = False
         self._saved_text = self.text
         try:

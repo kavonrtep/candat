@@ -7,6 +7,30 @@ changes).
 
 ## [Unreleased]
 
+### Added
+- **Crash recovery.** Buffers with unsaved edits are snapshotted to
+  `~/.cache/candat/recovery/` every 20 seconds and on a crash, so a hard crash,
+  `SIGKILL`, or power loss leaves a recent copy of your work. A clean quit
+  clears them; any that survive are reported (never auto-applied) on the next
+  launch.
+- **Go to line in the editor (`M-g`)** — prompts for a line number and moves
+  the cursor there (the pager already had its own `M-g`).
+- **macOS support.** The code was already POSIX-generic; CI now tests on
+  macOS as well as Linux across Python 3.10 and 3.13.
+
+### Changed
+- **Saves are now safe.** Files are written atomically (temp file + rename), so
+  a crash or full disk can no longer truncate a file mid-write.
+- **Encoding and line endings round-trip.** A file's encoding (UTF-8, a UTF-8
+  or UTF-16 BOM, or a latin-1 fallback that preserves any byte sequence) and
+  its line ending (LF/CRLF/CR) are detected on load and restored on save — a
+  non-UTF-8 or CRLF file is no longer silently corrupted or converted. The
+  status bar shows the encoding and `CRLF`/`CR` when they aren't plain UTF-8/LF.
+
+### Fixed
+- **UTF-16 files no longer misdetected as binary** (their NUL bytes are text
+  when a byte-order mark is present).
+
 ## [0.12.0] - 2026-07-12
 
 ### Added

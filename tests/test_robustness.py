@@ -27,7 +27,7 @@ async def test_classify_file(tmp_path):
     assert read_file_head(big)[1] == "large"
     assert read_file_head(blob)[1] == "binary"
     # force_full reads a large text file whole (but still guards binary)
-    text, kind, _ = read_file_head(big, force_full=True)
+    text, kind = read_file_head(big, force_full=True)[:2]
     assert kind == "normal" and text.count("\n") == 150_000
     assert read_file_head(blob, force_full=True)[1] == "binary"
 

@@ -67,6 +67,7 @@ KEY_HELP = """\
 | `C-s` / `C-r` | incremental search forward / backward (all visible matches highlighted) |
 | `C-s C-s` | repeat last search |
 | `M-%` | query-replace: `y` replace, `n` skip, `!` all, `q` stop |
+| `M-g` | go to line number |
 | `C-x g` | search project tree (regex; Enter jumps to match) |
 | `C-g` | cancel search, back to start |
 | `Enter` | accept search position |

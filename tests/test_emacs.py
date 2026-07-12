@@ -29,6 +29,26 @@ async def test_movement_keys():
         assert editor.point == (0, 0)
 
 
+async def test_goto_line():
+    from textual.widgets import Input
+
+    text = "".join(f"line {i}\n" for i in range(1, 21))
+    async with editor_with_text(text) as (app, pilot, editor):
+        await pilot.press("alt+g")  # M-g
+        await pilot.pause()
+        app.screen.query_one(Input).value = "12"
+        await pilot.press("enter")
+        await pilot.pause()
+        assert editor.point[0] == 11  # 1-based prompt -> 0-based row
+        # out-of-range clamps to the last line, doesn't error
+        await pilot.press("alt+g")
+        await pilot.pause()
+        app.screen.query_one(Input).value = "9999"
+        await pilot.press("enter")
+        await pilot.pause()
+        assert editor.point[0] == editor.document.line_count - 1
+
+
 async def test_kill_line_and_yank():
     async with editor_with_text("first line\nsecond line\n") as (app, pilot, editor):
         # C-k kills to end of line; second C-k kills the newline (appends).

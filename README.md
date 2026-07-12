@@ -31,7 +31,7 @@ The development version installs straight from GitHub:
 uv tool install git+https://github.com/kavonrtep/candat
 ```
 
-Requires Python >= 3.10 and Linux.
+Requires Python >= 3.10, on Linux or macOS.
 
 ## Run
 
@@ -128,12 +128,34 @@ last time you quit in that directory — tabs, cursor positions, scroll, and
 the active buffer (per project root, kept in `~/.local/state/candat/`).
 Passing files on the command line skips the restore.
 
-Crash logs (including hard faults caught by `faulthandler`) land in
-`~/.cache/candat/`.
+Files are read and written in whatever encoding and line ending they arrive
+in: UTF-8 by default, a UTF-8/UTF-16 byte-order mark is honoured, and anything
+else falls back to latin-1 so the bytes round-trip untouched (the status bar
+shows the encoding and `CRLF`/`CR` when they aren't plain UTF-8/LF). Saves are
+atomic — written to a temp file and renamed over the original — so a crash or
+full disk never leaves a half-written file.
+
+Unsaved edits are snapshotted to `~/.cache/candat/recovery/` every 20 seconds
+and on a crash; a clean quit clears them, and if any survive they are reported
+(never auto-applied) on the next launch. Crash logs (including hard faults
+caught by `faulthandler`) land in `~/.cache/candat/`.
 
 The file tree has a filter box on top: press `/` while the tree is focused (or click it), type to narrow the tree to files whose path matches, `Esc` clears it. The file tree opens files on selection. The default theme is `candat-light`
 (high-contrast dark-on-white). The markdown preview is linked: it follows
 the editor's scroll position.
+
+## Stability
+
+The keybindings are fixed emacs bindings by design — there is no rebinding
+layer, and that is a deliberate choice, not a missing feature. `candat` is a
+comfortable emacs-muscle-memory editor, not a configurable one.
+
+From 1.0 onward the project follows semantic versioning: the config-file keys,
+the `CANDAT_TREE_ICONS` variable, the command-line interface, and the on-disk
+locations of the config, session, and recovery files are treated as stable and
+will not change incompatibly within a major version. The keybindings and the
+`M-x` command names are equally stable. Behaviour details not listed here
+(exact status-bar wording, colours, internal module layout) may still change.
 
 ## Development
 

@@ -22,10 +22,21 @@ import pytest
 @pytest.fixture(autouse=True)
 def isolated_config(tmp_path_factory, monkeypatch):
     """Keep tests away from the user's real config and state (cycle-tree-icons
-    persists its choice; quitting saves the session)."""
+    persists its choice; quitting saves the session; edits are autosaved to a
+    recovery dir).
+
+    We isolate config/state via XDG env vars, but NOT XDG_CACHE_HOME — the
+    tree-sitter language pack caches compiled grammars there, and a fresh empty
+    cache per test makes grammar loading flaky. The recovery dir (the only
+    cache candat writes) is isolated by patching its accessor directly.
+    """
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path_factory.mktemp("xdg")))
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path_factory.mktemp("state")))
     monkeypatch.delenv("CANDAT_TREE_ICONS", raising=False)
+    from candat import recovery
+
+    recovery_root = tmp_path_factory.mktemp("recovery")
+    monkeypatch.setattr(recovery, "recovery_dir", lambda: recovery_root / "candat")
 
 
 @pytest.fixture

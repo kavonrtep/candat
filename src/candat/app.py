@@ -13,7 +13,7 @@ from textual.containers import Horizontal
 from textual.widgets import DirectoryTree, Static, TabbedContent, TextArea
 
 from .buffers import BufferListScreen
-from . import config, session
+from . import config, recovery, session
 from .chords import CTRL_C_MAP, CTRL_X_MAP, ChordScreen
 from .commands import CandatCommands
 from .csvview import CSV_SUFFIXES
@@ -50,6 +50,10 @@ class StatusBar(Static):
         language = editor.language or "text"
         where = str(editor.path) if editor.path else editor.display_name
         wrap = "  wrap" if editor.soft_wrap else ""
+        # Surface anything that isn't plain UTF-8 / LF, so a round-trip that
+        # will rewrite the file in another encoding or line ending is visible.
+        enc = "" if editor.encoding == "utf-8" else f"  {editor.encoding}"
+        eol = "  CRLF" if editor.newline == "\r\n" else ("  CR" if editor.newline == "\r" else "")
         if editor.binary:
             big = "  [b]binary[/]"
         elif editor.truncated:
@@ -57,7 +61,7 @@ class StatusBar(Static):
         else:
             big = ""
         self.update(
-            f" {flag} {where}   Ln {row + 1}, Col {col + 1}   {language}{wrap}{big}"
+            f" {flag} {where}   Ln {row + 1}, Col {col + 1}   {language}{enc}{eol}{wrap}{big}"
             "   [dim]F1 help[/]"
         )
 
@@ -187,6 +191,44 @@ class CandatApp(App[None]):
         elif not await self._restore_session():
             await self._new_buffer()
         self.set_interval(1.0, self._check_disk_changes)
+        self.set_interval(20.0, self._autosave_recovery)
+        self._announce_recovery()
+
+    # -- crash recovery ------------------------------------------------------
+
+    def _dirty_snapshots(self) -> list[tuple[Path | None, str]]:
+        """(path, text) for every buffer with unsaved edits, de-duplicated
+        across linked views."""
+        out: list[tuple[Path | None, str]] = []
+        seen: set = set()
+        for editor in self.all_editors():
+            if not editor.modified:
+                continue
+            key = editor.path or id(editor)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append((editor.path, editor.text))
+        return out
+
+    def _autosave_recovery(self) -> None:
+        """Snapshot dirty buffers to the recovery dir; drop the snapshots when
+        nothing is dirty, so a saved-and-clean editor leaves nothing behind."""
+        snapshots = self._dirty_snapshots()
+        if snapshots:
+            recovery.snapshot(snapshots)
+        else:
+            recovery.clear()
+
+    def _announce_recovery(self) -> None:
+        leftover = recovery.pending()
+        if leftover:
+            self.notify(
+                f"{len(leftover)} unsaved file(s) from a previous session were "
+                f"recovered to {recovery.recovery_dir()}",
+                severity="warning",
+                timeout=8,
+            )
 
     # -- session restore -----------------------------------------------------
 
@@ -262,8 +304,9 @@ class CandatApp(App[None]):
     def exit(self, *args, **kwargs) -> None:  # every quit path funnels here
         try:
             self._save_session()
+            recovery.clear()  # a clean quit needs no crash recovery
         except Exception:
-            pass  # never let session bookkeeping block quitting
+            pass  # never let bookkeeping block quitting
         super().exit(*args, **kwargs)
 
     # -- windows (editor groups) -------------------------------------------
@@ -750,6 +793,21 @@ class CandatApp(App[None]):
 
         self.push_screen(PromptScreen(f"Go to line (1-{pager.line_count}):"), run)
 
+    def action_goto_line(self) -> None:
+        """M-g: jump the editor cursor to a 1-based line number."""
+        editor = self.active_editor
+        if editor is None:
+            return
+        total = editor.document.line_count
+
+        def run(value: str | None) -> None:
+            if value and value.strip().lstrip("-").isdigit():
+                row = max(0, min(int(value.strip()) - 1, total - 1))
+                editor.move_cursor((row, 0), center=True)
+                editor.focus()
+
+        self.push_screen(PromptScreen(f"Go to line (1-{total}):"), run)
+
     def action_pager_open_in_editor(self) -> None:
         """`e` / `v` in the pager: load the whole file into a real editor
         buffer anyway (the pager is read-only by design)."""
@@ -1139,9 +1197,14 @@ class CandatApp(App[None]):
 
     def _handle_exception(self, error: Exception) -> None:
         # Textual restores the terminal and stops the app on an unhandled
-        # exception; also persist the traceback so it isn't lost with the TUI.
+        # exception; persist the traceback and a snapshot of any unsaved work
+        # so neither is lost with the TUI.
         try:
             self._crash_log = _write_crash_log(error)
+        except Exception:
+            pass
+        try:
+            recovery.snapshot(self._dirty_snapshots())
         except Exception:
             pass
         super()._handle_exception(error)

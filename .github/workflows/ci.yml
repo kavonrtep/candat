@@ -1,8 +1,9 @@
-name: Publish to PyPI
+name: CI
 
 on:
   push:
-    tags: ["v*"]
+    branches: ["main"]
+  pull_request:
 
 jobs:
   test:
@@ -19,15 +20,3 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: uv sync
       - run: uv run pytest -q
-
-  publish:
-    needs: test
-    runs-on: ubuntu-latest
-    environment: pypi
-    permissions:
-      id-token: write  # OIDC token for PyPI trusted publishing
-    steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v7
-      - run: uv build
-      - run: uv publish --trusted-publishing always
