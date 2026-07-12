@@ -14,6 +14,7 @@ import mmap
 import re
 from pathlib import Path
 
+from rich.style import Style
 from rich.text import Text
 from textual import events
 from textual.binding import Binding
@@ -68,9 +69,13 @@ class TextPager(Widget, can_focus=True):
         Binding("n", "search_next(1)", "next match", show=False),
         Binding("N", "search_next(-1)", "prev match", show=False),
         # Search / goto prompts live on the app (they push a minibuffer); the
-        # pager only has focus, so bind the keys here and delegate up.
-        Binding("ctrl+s,slash", "app.isearch_forward", "search", show=False),
-        Binding("ctrl+r,question_mark", "app.isearch_backward", "search back", show=False),
+        # pager only has focus, so bind the keys here and delegate up. C-s / C-r
+        # repeat to the next / previous match (like the editor's isearch); `/`
+        # and `?` always start a fresh search.
+        Binding("ctrl+s", "app.isearch_forward", "next match", show=False),
+        Binding("ctrl+r", "app.isearch_backward", "prev match", show=False),
+        Binding("slash", "app.pager_search_new(1)", "search", show=False),
+        Binding("question_mark", "app.pager_search_new(-1)", "search back", show=False),
         Binding("alt+g", "app.pager_goto_line", "goto line", show=False),
     ]
 
@@ -90,6 +95,7 @@ class TextPager(Widget, can_focus=True):
         self.hoffset = 0
         self._last_query = ""
         self.match_line: int | None = None
+        self._match_byte: int | None = None
 
     # -- lifecycle -----------------------------------------------------------
 
@@ -115,6 +121,7 @@ class TextPager(Widget, can_focus=True):
         self._indexing = True
         self.top_line = self.top_seg = self.hoffset = 0
         self.match_line = None
+        self._match_byte = None
         self.run_worker(self._open_worker, thread=True, exclusive=True)
 
     def on_mount(self) -> None:
@@ -160,6 +167,11 @@ class TextPager(Widget, can_focus=True):
     @property
     def wrap(self) -> bool:
         return self._wrap
+
+    @property
+    def searching(self) -> bool:
+        """Whether a query is active (so C-s should repeat rather than prompt)."""
+        return bool(self._last_query)
 
     # -- reading -------------------------------------------------------------
 
@@ -216,19 +228,44 @@ class TextPager(Widget, can_focus=True):
             rows.append("")
         return rows
 
+    HIGHLIGHT = Style(bgcolor="yellow", color="black")
+
     def render(self) -> Text:
         if self._indexing:
             return Text(" indexing…", style="dim")
         width = self.size.width
         height = self.size.height
-        lines = []
-        for row in self._viewport_rows(height, width):
+        query = self._last_query
+        fold = bool(query) and query == query.lower()  # smart case, as search
+        out = Text(no_wrap=True, end="")
+        for i, row in enumerate(self._viewport_rows(height, width)):
+            if i:
+                out.append("\n")
             # Hard-crop each row to the width so nothing wraps (Rich's no_wrap
             # alone doesn't); mark a truncated no-wrap line with a chevron.
             if width > 0 and len(row) > width:
                 row = row[: width - 1] + "›"
-            lines.append(row)
-        return Text("\n".join(lines), no_wrap=True, end="")
+            if query:
+                self._append_highlighted(out, row, query, fold)
+            else:
+                out.append(row)
+        return out
+
+    def _append_highlighted(self, out: Text, row: str, query: str, fold: bool) -> None:
+        """Append `row`, styling every occurrence of the query (all matches in
+        the visible area, not just the current one)."""
+        hay = row.lower() if fold else row
+        needle = query.lower() if fold else query
+        n = len(needle)
+        start = 0
+        while n:
+            idx = hay.find(needle, start)
+            if idx == -1:
+                break
+            out.append(row[start:idx])
+            out.append(row[idx : idx + n], self.HIGHLIGHT)
+            start = idx + n
+        out.append(row[start:])
 
     # -- navigation ----------------------------------------------------------
 
@@ -316,27 +353,36 @@ class TextPager(Widget, can_focus=True):
 
     def search(self, query: str, forward: bool = True) -> bool:
         self._last_query = query
+        self._match_byte = None  # fresh query: match from the current viewport
         return self.search_next(forward)
 
     def search_next(self, forward: bool = True) -> bool:
-        """Move to the next/previous line matching the last query (smart case,
-        wraps around). Returns whether a match was found."""
+        """Move to the next/previous match of the last query (smart case, wraps
+        around). Advances past the current match, so repeated matches on one
+        line are each reachable. Returns whether a match was found."""
         if self._mm is None or not self._last_query:
             return False
         query = self._last_query
         flags = re.IGNORECASE if query == query.lower() else 0
         pattern = re.compile(re.escape(query.encode("utf-8", "replace")), flags)
-        cursor = self._line_start(self.top_line)
+        # Anchor to the current match when we're still on its line, so C-s moves
+        # to the *next* occurrence rather than re-finding the current one; after
+        # a scroll, anchor to the top of the viewport instead.
+        anchored = self._match_byte is not None and self.match_line == self.top_line
+        line_start = self._line_start(self.top_line)
         if forward:
-            match = pattern.search(self._mm, cursor + 1) or pattern.search(self._mm, 0)
+            start = self._match_byte + 1 if anchored else line_start
+            match = pattern.search(self._mm, start) or pattern.search(self._mm, 0)
         else:
-            match = self._find_backward(pattern, cursor) or self._find_backward(
+            end = self._match_byte if anchored else line_start
+            match = self._find_backward(pattern, end) or self._find_backward(
                 pattern, len(self._mm)
             )
         if match is None:
             self.match_line = None
             self.app.notify(f"Not found: {query}", severity="warning", timeout=2)
             return False
+        self._match_byte = match.start()
         line = self._byte_to_line(match.start())
         self.match_line = line
         self.top_line = line

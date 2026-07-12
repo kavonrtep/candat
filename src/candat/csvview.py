@@ -277,7 +277,7 @@ class CsvViewer(Vertical):
         ]
         if self._filter is not None:
             parts.append(f"filter: {self._filter.pattern}")
-        parts.append("[dim]/ search  n next  & filter  G end[/]")
+        parts.append("[dim]/ search  C-s/n next  & filter  G end[/]")
         self.query_one("#csv-status", Static).update("   ".join(parts))
 
     @on(DataTable.RowHighlighted)
@@ -289,19 +289,32 @@ class CsvViewer(Vertical):
             self.load_more(BATCH_ROWS)
         self._update_status()
 
+    def _prompt_search(self) -> None:
+        from .dialogs import PromptScreen
+
+        def do_search(pattern: str | None) -> None:
+            if pattern:
+                self.search(pattern)
+
+        self.app.push_screen(PromptScreen("Search table (regex):"), do_search)
+
     def on_key(self, event: events.Key) -> None:
         from .dialogs import PromptScreen
 
         key = event.key
-        if key in ("slash", "/", "ctrl+s"):
+        if key in ("slash", "/"):
             event.stop()
             event.prevent_default()
-
-            def do_search(pattern: str | None) -> None:
-                if pattern:
-                    self.search(pattern)
-
-            self.app.push_screen(PromptScreen("Search table (regex):"), do_search)
+            self._prompt_search()
+        elif key == "ctrl+s":
+            # C-s repeats to the next match when a search is active (like the
+            # editor / pager); otherwise it starts one.
+            event.stop()
+            event.prevent_default()
+            if self._last_search is not None:
+                self.search_next()
+            else:
+                self._prompt_search()
         elif key == "n":
             event.stop()
             self.search_next()

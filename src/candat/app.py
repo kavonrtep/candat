@@ -606,13 +606,28 @@ class CandatApp(App[None]):
             editor.action_isearch_backward()
 
     def _pager_search(self, forward: bool) -> bool:
-        """C-s/C-r in the pager: prompt for a query and search the file.
-        (n / N repeat the match inside the pager.) Returns True if handled."""
+        """C-s/C-r in the pager: repeat to the next/previous match if a search
+        is active, else prompt for one (`/` `?` always start fresh). n / N also
+        repeat. Returns True if handled (pager active)."""
         pane = self.active_pane
         if pane is None or not pane.is_pager:
             return False
         pager = pane.pager
+        if pager.searching:
+            pager.search_next(forward)
+            self._refresh_status()
+        else:
+            self._pager_search_prompt(pager, forward)
+        return True
 
+    def action_pager_search_new(self, direction: int) -> None:
+        """`/` `?` in the pager: always prompt for a new query."""
+        pane = self.active_pane
+        if pane is None or not pane.is_pager:
+            return
+        self._pager_search_prompt(pane.pager, direction > 0)
+
+    def _pager_search_prompt(self, pager, forward: bool) -> None:
         def run(query: str | None) -> None:
             if query:
                 pager.search(query, forward)
@@ -620,7 +635,6 @@ class CandatApp(App[None]):
 
         prompt = "Search:" if forward else "Search backward:"
         self.push_screen(PromptScreen(prompt), run)
-        return True
 
     def action_pager_goto_line(self) -> None:
         pane = self.active_pane

@@ -109,8 +109,8 @@ the editor). Binary files show a placeholder.
 | `g` / `G` | first / last line |
 | ← / →, `C-b` / `C-f` | scroll left / right (when not wrapped) |
 | `C-x w` | toggle wrap (off by default; truncated lines show `›`) |
-| `C-s` / `C-r` (or `/` / `?`) | search forward / backward (smart case) |
-| `n` / `N` | repeat search forward / backward |
+| `/` / `?` | new search forward / backward (smart case) |
+| `C-s` / `C-r`, `n` / `N` | next / previous match (all matches in view are highlighted) |
 | `M-g` | go to line |
 
 ## Panels & tools

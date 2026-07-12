@@ -7,6 +7,18 @@ changes).
 
 ## [Unreleased]
 
+### Added
+- **Match highlighting in the large-file pager.** Every occurrence of the
+  search term in the visible area is highlighted, not just the current one.
+
+### Changed
+- **Consistent search-repeat with `C-s`.** In the pager and the CSV/TSV table,
+  `C-s` now steps to the *next* match (and `C-r` to the previous, in the pager)
+  when a search is active — matching the editor's isearch — instead of
+  re-prompting. `/` (and `?` in the pager) still start a fresh search. Pager
+  next/previous advances past the current match, so repeated hits on one line
+  are each reachable.
+
 ## [0.9.0] - 2026-07-12
 
 ### Changed

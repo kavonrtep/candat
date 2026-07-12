@@ -122,6 +122,36 @@ async def test_search_smart_case(tmp_path):
         await cm.__aexit__(None, None, None)
 
 
+async def test_search_repeats_within_and_across_lines(tmp_path):
+    f = tmp_path / "m.txt"
+    f.write_text("".join(f"row {i} tok A tok B\n" for i in range(500)))
+    app, pilot, cm, pager = await open_pager(f)
+    try:
+        assert pager.search("tok") is True  # first 'tok' on line 0
+        assert pager.top_line == 0
+        first = pager._match_byte
+        assert pager.search_next(True) is True  # second 'tok', still line 0
+        assert pager.top_line == 0 and pager._match_byte > first
+        assert pager.search_next(True) is True  # first 'tok' on line 1
+        assert pager.top_line == 1
+        assert pager.search_next(False) is True  # step back to line 0
+        assert pager.top_line == 0
+    finally:
+        await cm.__aexit__(None, None, None)
+
+
+async def test_highlight_all_visible_matches(tmp_path):
+    f = tmp_path / "h.txt"
+    f.write_text("".join(f"row {i} tok tok\n" for i in range(50)))
+    app, pilot, cm, pager = await open_pager(f)
+    try:
+        pager.search("tok")
+        styled = [s for s in pager.render().spans if s.style == pager.HIGHLIGHT]
+        assert len(styled) > 1  # every visible 'tok' is styled, not just one
+    finally:
+        await cm.__aexit__(None, None, None)
+
+
 async def test_goto_percent(tmp_path):
     app, pilot, cm, pager = await open_pager(make_file(tmp_path))
     try:
