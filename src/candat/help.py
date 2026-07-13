@@ -60,6 +60,26 @@ KEY_HELP = """\
 | `C-x w` | toggle soft wrap |
 | `C-d` | delete char |
 
+## Markdown
+
+In `.md` buffers the editor helps with structure (`C-c C-v` cycles the live
+preview). `Enter` continues lists: `-`, `1.` (numbers renumber), `- [ ]`
+task boxes, and `>` quotes; `Enter` on an empty item ends the list. Inside
+a pipe table, `Tab` / `Shift-Tab` hop between cells (aligning the table as
+they go) and `Tab` past the last cell adds a row; on a list item they
+nest / un-nest it. `Enter` at the end of a lone ` ``` ` closes the fence.
+Pasting a URL over selected text turns it into a `[link](url)`. Code
+fences are left alone by all of this.
+
+| Key | Action |
+| --- | --- |
+| `M-q` | reformat at point: fill paragraph/list/quote to `fill_column`, or align the table |
+| `Tab` / `Shift-Tab` | next/previous table cell; indent/outdent list item |
+| `C-c C-t` | toggle `[ ]`/`[x]` (adds a box to a plain item) |
+| `C-c b` / `C-c i` / `C-c c` | bold / italic / inline-code the region or word at point |
+
+`M-q` also fills paragraphs in plain-text buffers.
+
 ## Search & replace
 
 | Key | Action |
@@ -146,6 +166,7 @@ shown up to their first 64 KB (marked with `…`).
 | `C-x o` | cycle focus: tree → editor → terminal |
 | `/` (in file tree) | filter the tree by path; `Esc` clears |
 | `r` / `g` (in file tree) | refresh the tree from disk (keeps the filter) |
+| `w` / `M-w` (in file tree) | copy the selection's absolute path to the kill ring (`C-y` pastes it) |
 | `C-x {` / `C-x }` | narrow / widen the file tree (or drag the divider; double-click resets) |
 | `C-c C-v` | alternate view: markdown preview cycle, or table view of any other buffer |
 | `M-x`, `Ctrl+Shift+P` | command palette |
@@ -163,10 +184,14 @@ CSV views track the file in place). The status bar shows `--` clean,
 
 `~/.config/candat/config.toml` (XDG aware): `tree_icons` ("emoji" /
 "nerd" / "ascii"; `cycle-tree-icons` saves your choice), `pager_wrap`
-(start the pager wrapped), `tabstop` (tab width in the pager), and
-`restore_session` (start `candat` with no files → the previous
-session's files reopen, with cursors and the active tab). The
-`CANDAT_TREE_ICONS` environment variable overrides the config.
+(start the pager wrapped), `tabstop` (tab width in the pager),
+`fill_column` (wrap width for `M-q`, default 80), `system_clipboard`
+(mirror copies to the system clipboard via OSC 52 + wl-copy/xclip:
+"copy" = M-w and tree `w` only, "all" = every kill, "off"; in tmux
+set `set -g set-clipboard on`), and `restore_session` (start `candat`
+with no files → the previous session's files reopen, with cursors and
+the active tab). The `CANDAT_TREE_ICONS` environment variable
+overrides the config.
 
 *Press `q`, `Esc`, or `C-g` to close this help.*
 """

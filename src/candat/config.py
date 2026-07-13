@@ -16,6 +16,9 @@ Recognised keys:
 - ``table_suffixes``: file suffixes that open straight into the table viewer
   (any other buffer can still be switched to a table with ``C-c C-v``)
 - ``terminal_history``: scrollback lines kept by the terminal panel
+- ``fill_column``: wrap width for ``M-q`` (fill-paragraph)
+- ``system_clipboard``: mirror copies to the system clipboard — "copy"
+  (explicit copies: M-w, tree ``w``), "all" (every kill), or "off"
 """
 
 from __future__ import annotations
@@ -36,6 +39,8 @@ DEFAULTS: dict[str, object] = {
     "restore_session": True,
     "table_suffixes": [".csv", ".tsv"],
     "terminal_history": 2000,
+    "fill_column": 80,
+    "system_clipboard": "copy",
 }
 
 

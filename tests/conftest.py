@@ -39,6 +39,16 @@ def isolated_config(tmp_path_factory, monkeypatch):
     monkeypatch.setattr(recovery, "recovery_dir", lambda: recovery_root / "candat")
 
 
+@pytest.fixture(autouse=True)
+def no_clipboard_tools(monkeypatch):
+    """Copy actions must never touch the developer's real clipboard while
+    the suite runs: disable the wl-copy/xclip fallback. The OSC 52 channel
+    is harmless headless and records on app.clipboard for assertions."""
+    from candat import clipboard
+
+    monkeypatch.setattr(clipboard, "_copy_via_tool", lambda text: None)
+
+
 @pytest.fixture
 def bash_shell(monkeypatch):
     """Point SHELL at bash with a plain prompt, for terminal tests."""

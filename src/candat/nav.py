@@ -19,7 +19,7 @@ from textual.containers import Vertical
 from textual.widget import Widget
 from textual.widgets import DirectoryTree, Input
 
-from . import config
+from . import clipboard, config
 
 IGNORE_DIRS = {
     ".git",
@@ -61,7 +61,22 @@ class FileTree(DirectoryTree):
         # Manual refresh (dired's g, plus r) — deliberately not automatic:
         # re-walking a large tree can block, so the user decides when.
         Binding("r,g", "refresh", "refresh", show=False),
+        # dired's w (copy-filename-as-kill), plus M-w to match the editor.
+        Binding("w,alt+w", "copy_path", "copy path", show=False),
     ]
+
+    def action_copy_path(self) -> None:
+        """Push the selected file/dir's absolute path onto the kill ring,
+        ready to yank into any buffer with C-y."""
+        node = self.cursor_node
+        entry = node.data if node is not None else None
+        if entry is None:
+            self.app.notify("No file selected", severity="warning", timeout=2)
+            return
+        path = os.path.abspath(entry.path)
+        self.app.kill_ring.push(path)
+        clipboard.copy_explicit(self.app, path)
+        self.app.notify(f"Copied: {path}", timeout=2)
 
     async def action_refresh(self) -> None:
         """Re-read the directory tree from disk, keeping the active filter."""

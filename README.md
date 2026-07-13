@@ -7,8 +7,8 @@ A terminal text editor with emacs keybindings, built on [Textual](https://textua
 ![candat — a terminal editor with emacs keybindings](https://raw.githubusercontent.com/kavonrtep/candat/main/docs/brag.gif)
 
 More than the basics, without leaving the terminal — emacs keys, split windows
-on the same file, live markdown preview, a CSV table viewer, a large-file
-pager, and a real shell inside.
+on the same file, live markdown preview with smart markdown editing, a CSV
+table viewer, a large-file pager, and a real shell inside.
 
 ## Install
 
@@ -78,6 +78,10 @@ Passing a directory sets the file-tree root; files are opened in buffers.
 | `C-x t` | toggle terminal panel (keys pass through raw; only `C-x` is reserved) |
 | `Shift+PgUp/PgDn`, wheel | terminal scrollback (typing snaps back) |
 | `C-c C-v` | alternate view: markdown preview cycle, or table view of the buffer |
+| `M-q` | fill paragraph to `fill_column`; in a markdown table, align the columns |
+| `Tab` / `Shift-Tab` | markdown: next / previous table cell, or nest / un-nest a list item |
+| `C-c C-t` | markdown: toggle a `[ ]`/`[x]` checkbox |
+| `C-c b` / `C-c i` / `C-c c` | markdown: bold / italic / inline-code the region or word |
 | `C-x {` / `C-x }` | narrow / widen the file tree (or drag the divider) |
 | `M-x`, `Ctrl+Shift+P` | command palette |
 | `C-g` / `Esc` | cancel chord / prompt / search / mark |
@@ -117,6 +121,17 @@ highlighted in the cells (`Esc` clears), `C-s`/`n` and `C-r`/`N` step to the
 next / previous match, `&` filters rows by regex, `g`/`G` jump to
 top/bottom. `C-c C-v` switches back to the raw text. The table is read-only.
 
+Markdown buffers edit structurally, not just visually. `Enter` continues
+lists — bullets, numbered items (the block renumbers itself), `- [ ]` task
+boxes, `>` quotes — and `Enter` on an empty item ends the list; after an
+unclosed ` ``` ` it closes the fence. `M-q` reformats by context: paragraphs,
+list items, and quotes wrap to `fill_column` (works in plain-text buffers
+too), and inside a pipe table it aligns the columns, honouring `:---:`
+alignment markers. `Tab`/`Shift-Tab` hop cell to cell through a table
+(keeping it aligned; `Tab` past the last cell adds a row) or nest/un-nest a
+list item. Pasting a URL over selected text makes a `[link](url)`. Fenced
+code blocks are exempt from all of it.
+
 The file-tree icons are emoji by default; if your terminal renders them poorly
 (Konsole, some others), set `CANDAT_TREE_ICONS=nerd` (needs a Nerd Font) or
 `=ascii`, or switch live with `M-x cycle-tree-icons` — the choice is saved.
@@ -133,7 +148,42 @@ tabstop = 8              # tab width in the pager
 restore_session = true   # reopen last session's files (see below)
 table_suffixes = [".csv", ".tsv"]   # files that open straight into the table
 terminal_history = 2000  # scrollback lines kept by the terminal panel
+fill_column = 80         # wrap width for M-q (fill-paragraph)
+system_clipboard = "copy"   # mirror copies to the system clipboard (see below)
 ```
+
+### System clipboard
+
+Copies can be mirrored to the system clipboard, controlled by
+`system_clipboard`: `"copy"` (the default) mirrors explicit copies — `M-w`
+and `w` in the file tree; `"all"` mirrors every kill (`C-k`, `C-w`, `M-d`,
+…, like emacs' `select-enable-clipboard`); `"off"` keeps everything in the
+app-internal kill ring only. Pasting *from* the system clipboard needs no
+setup — the terminal's own paste (usually `Ctrl+Shift+V`) already arrives
+in the buffer.
+
+Two channels are used at once, since neither can report success:
+
+- **OSC 52**, an escape sequence the terminal turns into a clipboard write.
+  This is what makes **SSH work**: the sequence travels back through the
+  connection and your *local* terminal does the copy, so text copied in a
+  remote candat lands on your local clipboard. Support depends on the
+  terminal: Konsole has it (any recent release; if it doesn't work, look
+  for "remote clipboard" in the profile settings), kitty / WezTerm /
+  Alacritty / foot / xterm / Windows Terminal work out of the box, and
+  GNOME Terminal and other VTE terminals only from VTE 0.76 (≈ Ubuntu
+  24.04). **Inside tmux** add `set -g set-clipboard on` to `~/.tmux.conf`,
+  or tmux swallows the sequence — that applies to local *and* SSH'd tmux
+  sessions.
+- **A local clipboard tool** — `wl-copy`, `xclip`, `xsel`, or `pbcopy`,
+  whichever is installed and matches the session type — as a fallback for
+  terminals without OSC 52. This channel only helps on the machine candat
+  runs on; over SSH it would set the *remote* clipboard, so there OSC 52
+  is the one that matters.
+
+Unsupported terminals silently ignore OSC 52 — if a copy doesn't reach the
+clipboard, it's the terminal or tmux configuration, and the text is still
+on the kill ring (`C-y`) regardless.
 
 Starting candat without file arguments reopens the files you had open the
 last time you quit in that directory — tabs, cursor positions, scroll, and
@@ -152,7 +202,7 @@ and on a crash; a clean quit clears them, and if any survive they are reported
 (never auto-applied) on the next launch. Crash logs (including hard faults
 caught by `faulthandler`) land in `~/.cache/candat/`.
 
-The file tree has a filter box on top: press `/` while the tree is focused (or click it), type to narrow the tree to files whose path matches, `Esc` clears it. `r` (or `g`, dired-style) refreshes the tree from disk — deliberately manual, since re-walking a large tree can take a moment. The file tree opens files on selection. The default theme is `candat-light`
+The file tree has a filter box on top: press `/` while the tree is focused (or click it), type to narrow the tree to files whose path matches, `Esc` clears it. `r` (or `g`, dired-style) refreshes the tree from disk — deliberately manual, since re-walking a large tree can take a moment. `w` (or `M-w`, dired-style again) copies the selected file or directory's absolute path to the kill ring, ready to yank into any buffer with `C-y`. The file tree opens files on selection. The default theme is `candat-light`
 (high-contrast dark-on-white). The markdown preview is linked: it follows
 the editor's scroll position.
 
@@ -185,6 +235,8 @@ Release history is in [CHANGELOG.md](CHANGELOG.md).
 4. ~~Terminal panel (full PTY: forkpty + pyte)~~
 5. ~~Polish: terminal scrollback, dirty-line rendering, path completion in
    prompts, buffer list, scroll-synced preview, R/xml/html highlighting~~
+6. ~~Markdown editing: smart Enter for lists/quotes, M-q fill & table
+   alignment, table cell navigation, checkbox/emphasis helpers~~
 
 Syntax highlighting covers python, markdown, json, yaml, bash, html, xml,
 css, toml, js, sql, go, rust, java, R, and config formats — INI/`.cfg`/

@@ -211,3 +211,34 @@ async def test_no_match_hides_everything(tmp_path):
         await tree.set_filter("zzz-nothing")
         await pilot.pause()
         assert visible_names(tree) == set()
+
+
+async def test_copy_path_puts_absolute_path_on_kill_ring(tmp_path):
+    import os
+
+    root = make_tree(tmp_path)
+    async with open_app([root]) as (app, pilot):
+        tree = app.query_one(FileTree)
+        tree.focus()
+        await pilot.press("down")  # first child under the root
+        await pilot.press("w")  # dired's copy-filename-as-kill
+        copied = app.kill_ring.current
+        assert copied == os.path.abspath(tree.cursor_node.data.path)
+        assert os.path.isabs(copied)
+        # M-w does the same, and the root node itself is copyable
+        await pilot.press("up")
+        await pilot.press("alt+w")
+        assert app.kill_ring.current == os.path.abspath(root)
+
+
+async def test_copied_path_yanks_into_a_buffer(tmp_path):
+    root = make_tree(tmp_path)
+    async with open_app([root]) as (app, pilot):
+        tree = app.query_one(FileTree)
+        tree.focus()
+        await pilot.press("down", "w")
+        copied = app.kill_ring.current
+        editor = app.active_editor
+        editor.focus()
+        await pilot.press("ctrl+y")
+        assert copied in editor.text

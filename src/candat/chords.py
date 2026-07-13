@@ -42,6 +42,10 @@ CTRL_X_MAP: dict[str, tuple[str, str]] = {
 CTRL_C_MAP: dict[str, tuple[str, str]] = {
     "ctrl+c": ("send_to_repl", "send line/region to terminal"),
     "ctrl+v": ("toggle_preview", "toggle markdown preview"),
+    "ctrl+t": ("markdown_toggle_checkbox", "toggle checkbox"),
+    "b": ("markdown_bold", "bold word/region"),
+    "i": ("markdown_italic", "italic word/region"),
+    "c": ("markdown_code", "inline-code word/region"),
 }
 
 

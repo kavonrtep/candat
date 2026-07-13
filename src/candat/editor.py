@@ -19,6 +19,8 @@ from textual.binding import Binding
 from textual.widgets import TextArea
 from textual.widgets.text_area import Selection
 
+from . import clipboard, config, markdown
+
 LANGUAGES: dict[str, str] = {
     ".py": "python",
     ".pyi": "python",
@@ -264,6 +266,7 @@ META_ACTIONS: dict[str, str] = {
     "semicolon": "toggle_comment",  # M-;
     "percent_sign": "app.query_replace",  # M-%
     "g": "app.goto_line",  # M-g
+    "q": "fill_paragraph",  # M-q
 }
 
 # Line-comment prefix per language (M-;). Languages without a line-comment
@@ -610,6 +613,18 @@ class EditorBuffer(TextArea):
             if (action := META_ACTIONS.get(meta_key)) is not None:
                 await self.run_action(action)
             return
+        # Markdown smart editing: Enter continues list/quote markers, Tab
+        # moves between table cells and nests list items.
+        if self.language == "markdown" and not self.read_only:
+            handled = False
+            if event.key == "enter":
+                handled = self._markdown_enter()
+            elif event.key in ("tab", "shift+tab"):
+                handled = self._markdown_tab(backward=event.key == "shift+tab")
+            if handled:
+                event.stop()
+                event.prevent_default()
+                return
         # Emacs: typing while the region is active inserts at point without
         # deleting the region (no delete-selection-mode).
         if self.mark_active and event.is_printable:
@@ -744,7 +759,9 @@ class EditorBuffer(TextArea):
             self.app.notify("The region is empty", severity="warning", timeout=2)
             return
         start, end = sorted((sel.start, sel.end))
-        self.app.kill_ring.push(self.get_text_range(start, end))
+        text = self.get_text_range(start, end)
+        self.app.kill_ring.push(text)
+        clipboard.copy_explicit(self.app, text)
         self.deactivate_mark()
 
     def _word_range(self, *, backward: bool) -> tuple[tuple[int, int], tuple[int, int]]:
@@ -902,6 +919,267 @@ class EditorBuffer(TextArea):
 
         self.selection = Selection(clamp(sel.start), clamp(sel.end))
         self.mark_active = was_active
+
+    # -- markdown smart editing -------------------------------------------------
+
+    def _doc_lines(self) -> list[str]:
+        document = self.document
+        return [document.get_line(i) for i in range(document.line_count)]
+
+    def _replace_keeping_view(self, text: str, start, end) -> None:
+        """Replace a range without letting the edit's end-of-text cursor
+        yank the viewport; the caller sets the real cursor afterwards (and
+        watch_selection scrolls it visible if it truly moved away)."""
+        x, y = self.scroll_x, self.scroll_y
+        self.replace(text, start, end, maintain_selection_offset=False)
+        self.scroll_to(x=x, y=y, animate=False)
+
+    def _markdown_enter(self) -> bool:
+        """Smart Enter: continue list/quote markers, end a list on an empty
+        item, auto-close a just-opened code fence. True when handled."""
+        if not self.selection.is_empty:
+            return False
+        row, col = self.point
+        lines = self._doc_lines()
+        if markdown.in_fence(lines, row):
+            return False
+        line = lines[row]
+        if col == len(line) and (
+            closer := markdown.unclosed_fence_opener(lines, row)
+        ) is not None:
+            self.replace("\n\n" + closer, (row, col), (row, col),
+                         maintain_selection_offset=False)
+            self.selection = Selection((row + 1, 0), (row + 1, 0))
+            return True
+        prefix = markdown.continuation(line)
+        if prefix is None:
+            return False
+        if markdown.is_empty_item(line) and col == len(line):
+            # Enter on an empty item ends the list: remove the marker.
+            self.replace("", (row, 0), (row, len(line)),
+                         maintain_selection_offset=False)
+            self.selection = Selection((row, 0), (row, 0))
+            self._markdown_restart_tail(row, markdown.parse_item(line))
+            return True
+        if col < markdown.content_col(line):
+            return False  # inside the marker itself: a plain newline
+        # Splitting mid-item: the text after point moves to the new item, so
+        # swallow the whitespace under the cursor rather than carrying it.
+        rest = line[col:]
+        skip = len(rest) - len(rest.lstrip(" "))
+        self._replace_keeping_view("\n" + prefix, (row, col), (row, col + skip))
+        target = (row + 1, len(prefix))
+        self.selection = Selection(target, target)
+        item = markdown.parse_item(line)
+        if item is not None and markdown.ORDERED_RE.match(item.marker):
+            self._markdown_renumber(row + 1)
+        return True
+
+    def _markdown_restart_tail(self, row: int, item) -> None:
+        """After an empty ordered item is removed mid-list, restart the list
+        below at the removed number, so the source numbering matches what a
+        renderer shows (a blank line doesn't end a markdown list)."""
+        if item is None or (m := markdown.ORDERED_RE.match(item.marker)) is None:
+            return
+        if row + 1 >= self.document.line_count:
+            return
+        line = self.document.get_line(row + 1)
+        nxt = markdown.parse_item(line)
+        if (
+            nxt is None
+            or nxt.quote != item.quote
+            or len(nxt.indent) != len(item.indent)
+            or (m2 := markdown.ORDERED_RE.match(nxt.marker)) is None
+        ):
+            return
+        new = (nxt.quote + nxt.indent + m["number"] + m2["delim"]
+               + nxt.space + (nxt.box or "") + nxt.content)
+        if new != line:
+            sel = self.selection
+            self._replace_keeping_view(new, (row + 1, 0), (row + 1, len(line)))
+            self.selection = sel
+            self._markdown_renumber(row + 1)
+
+    def _markdown_renumber(self, row: int) -> None:
+        """Renumber the ordered-list block around `row`, keeping the cursor
+        on the same spot of its (possibly re-widthed) line."""
+        lines = self._doc_lines()
+        result = markdown.renumber(lines, row)
+        if result is None:
+            return
+        start, end, new = result
+        sel_row, sel_col = self.point
+        self._replace_keeping_view("\n".join(new), (start, 0), (end, len(lines[end])))
+        col = sel_col
+        if start <= sel_row <= end:
+            col = max(0, sel_col + len(new[sel_row - start]) - len(lines[sel_row]))
+        self.selection = Selection((sel_row, col), (sel_row, col))
+
+    def _markdown_tab(self, backward: bool) -> bool:
+        """Tab/Shift-Tab: cell navigation inside a table, indent/outdent on
+        a list item. True when handled (Tab on a list line is always
+        swallowed so it never injects spaces mid-item)."""
+        if not self.selection.is_empty:
+            return False
+        row, col = self.point
+        lines = self._doc_lines()
+        if markdown.in_fence(lines, row):
+            return False
+        line = lines[row]
+        if markdown.is_table_row(line):
+            if self.writable():
+                self._table_tab(lines, row, col, backward)
+            return True
+        if markdown.parse_item(line) is None:
+            return False
+        if not self.writable():
+            return True
+        new = (markdown.outdent_item if backward else markdown.indent_item)(lines, row)
+        if new is not None and new != line:
+            spot = (row, max(0, col + len(new) - len(line)))
+            self._replace_keeping_view(new, (row, 0), (row, len(line)))
+            self.selection = Selection(spot, spot)
+            self._markdown_renumber(row)
+        return True
+
+    def _table_tab(self, lines: list[str], row: int, col: int, backward: bool) -> None:
+        """Align the table at `row`, then move to the next/previous cell;
+        Tab off the last cell appends a fresh empty row."""
+        idx = markdown.cell_index(lines[row], col)
+        result = markdown.align_table(lines, row)
+        if result is None:
+            return
+        start, end, table = result
+        if table != lines[start : end + 1]:
+            self._replace_keeping_view("\n".join(table), (start, 0), (end, len(lines[end])))
+        # Every data cell in reading order: (absolute row, content column).
+        cells: list[tuple[int, int]] = []
+        flat_of: dict[tuple[int, int], int] = {}
+        for i, table_line in enumerate(table):
+            if markdown.is_separator_row(table_line):
+                continue
+            for j, (s, _) in enumerate(markdown.cell_bounds(table_line)):
+                flat_of[(start + i, j)] = len(cells)
+                cells.append((start + i, s))
+        if not cells:
+            return
+        if (row, idx) in flat_of:
+            target = flat_of[(row, idx)] + (-1 if backward else 1)
+        elif backward:  # from the separator row: previous row's last cell
+            earlier = [p for (r, _), p in flat_of.items() if r < row]
+            target = earlier[-1] if earlier else 0
+        else:  # from the separator row: next row's first cell
+            later = [p for (r, _), p in flat_of.items() if r > row]
+            target = later[0] if later else len(cells)
+        if target < 0:
+            target = 0
+        if target >= len(cells):
+            if backward:
+                target = len(cells) - 1
+            else:
+                new_row = markdown.blank_row_like(table[-1])
+                end_col = len(table[-1])
+                self._replace_keeping_view("\n" + new_row, (end, end_col), (end, end_col))
+                bounds = markdown.cell_bounds(new_row)
+                dest = (end + 1, bounds[0][0] if bounds else 0)
+                self.selection = Selection(dest, dest)
+                return
+        dest = cells[target]
+        self.selection = Selection(dest, dest)
+
+    def action_fill_paragraph(self) -> None:
+        """M-q: refill the paragraph/list item/quote at point to
+        `fill_column`, or align the pipe table the cursor is in."""
+        if not self.writable():
+            return
+        if self.language not in (None, "markdown"):
+            self.app.notify(
+                f"fill-paragraph is for prose, not {self.language}",
+                severity="warning",
+                timeout=2,
+            )
+            return
+        width = int(config.load()["fill_column"])
+        lines = self._doc_lines()
+        row, col = self.point
+        result = markdown.reformat(lines, row, width)
+        if result is None:
+            self.app.notify("Nothing to fill here", timeout=2)
+            return
+        start, end, new, what = result
+        if new == lines[start : end + 1]:
+            return
+        self._replace_keeping_view("\n".join(new), (start, 0), (end, len(lines[end])))
+        row = min(row, start + len(new) - 1)
+        spot = (row, min(col, len(new[row - start])))
+        self.selection = Selection(spot, spot)
+        self.app.notify(
+            "Aligned table" if what == "table" else "Filled paragraph", timeout=1.5
+        )
+
+    def markdown_toggle_checkbox(self) -> None:
+        """C-c C-t: flip [ ]/[x] on a task item; add a box to a plain item."""
+        if not self.writable():
+            return
+        if self.language != "markdown":
+            self.app.notify("Not a markdown buffer", severity="warning", timeout=2)
+            return
+        row, col = self.point
+        line = self.document.get_line(row)
+        new = markdown.toggle_checkbox(line)
+        if new is None:
+            self.app.notify("Not a list item", severity="warning", timeout=2)
+            return
+        self.replace(new, (row, 0), (row, len(line)),
+                     maintain_selection_offset=False)
+        spot = (row, min(col, len(new)))
+        self.selection = Selection(spot, spot)
+
+    def markdown_emphasis(self, kind: str) -> None:
+        """C-c b/i/c: toggle bold/italic/code on the region, or on the word
+        at point when no region is active."""
+        if not self.writable():
+            return
+        if self.language != "markdown":
+            self.app.notify("Not a markdown buffer", severity="warning", timeout=2)
+            return
+        sel = self.selection
+        if not sel.is_empty:
+            start, end = sorted((sel.start, sel.end))
+        else:
+            row, col = self.point
+            span = markdown.word_at(self.document.get_line(row), col)
+            if span is None:
+                self.app.notify("No word at point", severity="warning", timeout=2)
+                return
+            start, end = (row, span[0]), (row, span[1])
+        text = self.get_text_range(start, end)
+        result = self.replace(markdown.toggle_emphasis(text, kind), start, end,
+                              maintain_selection_offset=False)
+        self.mark_active = False
+        self.selection = Selection(result.end_location, result.end_location)
+
+    async def _on_paste(self, event: events.Paste) -> None:
+        # Pasting a URL over selected markdown text turns it into a link.
+        if (
+            self.language == "markdown"
+            and not self.read_only
+            and not self.selection.is_empty
+            and markdown.is_url(event.text)
+        ):
+            start, end = sorted((self.selection.start, self.selection.end))
+            label = self.get_text_range(start, end)
+            if "\n" not in label and label.strip():
+                event.stop()
+                event.prevent_default()
+                result = self.replace(
+                    f"[{label}]({event.text.strip()})", start, end,
+                    maintain_selection_offset=False,
+                )
+                self.mark_active = False
+                self.selection = Selection(result.end_location, result.end_location)
+                return
+        await super()._on_paste(event)
 
     # -- isearch ---------------------------------------------------------------
 

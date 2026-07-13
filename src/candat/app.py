@@ -13,7 +13,7 @@ from textual.containers import Horizontal
 from textual.widgets import DirectoryTree, Static, TabbedContent, TextArea
 
 from .buffers import BufferListScreen
-from . import config, recovery, session
+from . import clipboard, config, recovery, session
 from .chords import CTRL_C_MAP, CTRL_X_MAP, ChordScreen
 from .commands import CandatCommands
 from .bigtable import BigTable, has_quoted_newline
@@ -176,7 +176,9 @@ class CandatApp(App[None]):
 
     def __init__(self, paths: list[Path] | None = None) -> None:
         super().__init__()
-        self.kill_ring = KillRing()
+        # In system_clipboard = "all" mode every kill mirrors to the system
+        # clipboard; the hook itself decides based on the config.
+        self.kill_ring = KillRing(on_push=lambda text: clipboard.copy_on_kill(self, text))
         self.last_search = ""
         self._crash_log: Path | None = None
         paths = paths or []
@@ -749,6 +751,26 @@ class CandatApp(App[None]):
         if (editor := self.active_editor) is not None:
             editor.action_toggle_comment()
 
+    def action_fill_paragraph(self) -> None:
+        if (editor := self.active_editor) is not None:
+            editor.action_fill_paragraph()
+
+    def action_markdown_toggle_checkbox(self) -> None:
+        if (editor := self.active_editor) is not None:
+            editor.markdown_toggle_checkbox()
+
+    def action_markdown_bold(self) -> None:
+        if (editor := self.active_editor) is not None:
+            editor.markdown_emphasis("bold")
+
+    def action_markdown_italic(self) -> None:
+        if (editor := self.active_editor) is not None:
+            editor.markdown_emphasis("italic")
+
+    def action_markdown_code(self) -> None:
+        if (editor := self.active_editor) is not None:
+            editor.markdown_emphasis("code")
+
     def action_toggle_soft_wrap(self) -> None:
         pane = self.active_pane
         if pane is not None and pane.is_pager:
@@ -1203,6 +1225,9 @@ class CandatApp(App[None]):
     def action_cycle_tree_icons(self) -> None:
         name = self.query_one(FileTree).cycle_icons()
         self.notify(f"File-tree icons: {name}", timeout=2)
+
+    def action_copy_tree_path(self) -> None:
+        self.query_one(FileTree).action_copy_path()
 
     async def action_refresh_tree(self) -> None:
         await self.query_one(FileTree).action_refresh()

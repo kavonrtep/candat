@@ -7,6 +7,35 @@ covered by the compatibility promise.
 
 ## [Unreleased]
 
+### Added
+- **System-clipboard mirroring.** Copies now also land on the system
+  clipboard, via OSC 52 (works over SSH; in tmux enable
+  `set -g set-clipboard on`) plus a local wl-copy/xclip/xsel/pbcopy
+  fallback. The `system_clipboard` config key controls it: `"copy"`
+  (default — `M-w` and `w` in the tree), `"all"` (every kill, emacs'
+  select-enable-clipboard), or `"off"`.
+- **Copy path from the file tree.** `w` (dired's copy-filename-as-kill) or
+  `M-w` in the tree pushes the selected file/directory's absolute path onto
+  the kill ring — `C-y` pastes it into any buffer. Also `M-x copy-file-name`.
+- **Markdown editing mode.** Markdown buffers now edit like they mean it:
+  - `Enter` continues lists — bullets, numbered items (the block renumbers
+    itself), `- [ ]` task boxes, and `>` quotes; `Enter` on an empty item
+    ends the list, and `Enter` after an unclosed ` ``` ` auto-closes the
+    fence.
+  - `M-q` (fill-paragraph) reformats by context: paragraphs, list items and
+    quotes wrap to `fill_column` (new config key, default 80; works in
+    plain-text buffers too), and inside a pipe table it aligns the columns
+    instead, honouring `:---:` alignment markers.
+  - `Tab` / `Shift-Tab` inside a table move cell to cell, keeping the table
+    aligned; `Tab` past the last cell appends a row. On a list item they
+    nest / un-nest it (numbers follow).
+  - Small helpers: `C-c C-t` toggles a checkbox, `C-c b` / `C-c i` /
+    `C-c c` toggle bold/italic/inline-code on the region or word at point,
+    and pasting a URL over selected text makes a `[link](url)`.
+  - Fenced code blocks are exempt from all of the above. Everything is also
+    in `M-x` (`fill-paragraph`, `markdown-toggle-checkbox`, `markdown-bold`,
+    …) and the help screen.
+
 ## [1.2.0] - 2026-07-13
 
 ### Added
