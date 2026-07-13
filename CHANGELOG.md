@@ -7,6 +7,8 @@ covered by the compatibility promise.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-07-13
+
 ### Added
 - **File-tree refresh.** `r` (or `g`, dired-style) in the tree re-reads it
   from disk, keeping the active filter; also `M-x refresh-tree`. Deliberately
