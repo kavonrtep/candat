@@ -173,6 +173,37 @@ async def test_tree_resize_splitter_drag_and_reset(tmp_path):
         assert rendered.count("│") == max(1, splitter.size.height)
 
 
+async def test_tree_refresh_picks_up_new_files(tmp_path):
+    root = make_tree(tmp_path)
+    async with open_app([root]) as (app, pilot):
+        tree = app.query_one(FileTree)
+
+        def visible_names():
+            return {str(child.data.path.name) for child in tree.root.children}
+
+        assert "brand_new.py" not in visible_names()
+        (root / "brand_new.py").write_text("x")  # created outside candat
+        tree.focus()
+        await pilot.press("r")  # or g, dired-style
+        await pilot.pause()
+        assert "brand_new.py" in visible_names()
+
+
+async def test_tree_refresh_keeps_filter(tmp_path):
+    root = make_tree(tmp_path)
+    async with open_app([root]) as (app, pilot):
+        tree = app.query_one(FileTree)
+        await tree.set_filter("readme")
+        await pilot.pause()
+        (root / "readme_two.md").write_text("x")
+        (root / "unrelated.log").write_text("x")
+        await tree.action_refresh()
+        await pilot.pause()
+        names = {str(child.data.path.name) for child in tree.root.children}
+        assert "readme_two.md" in names  # new match appears
+        assert "unrelated.log" not in names  # filter still applied
+
+
 async def test_no_match_hides_everything(tmp_path):
     root = make_tree(tmp_path)
     async with open_app([root]) as (app, pilot):

@@ -76,7 +76,7 @@ Passing a directory sets the file-tree root; files are opened in buffers.
 | `M-;` | toggle line comment |
 | `C-c C-c` | send region or current line to the terminal REPL |
 | `C-x t` | toggle terminal panel (keys pass through raw; only `C-x` is reserved) |
-| `Shift+PgUp/PgDn` | terminal scrollback (typing snaps back) |
+| `Shift+PgUp/PgDn`, wheel | terminal scrollback (typing snaps back) |
 | `C-c C-v` | alternate view: markdown preview cycle, or table view of the buffer |
 | `C-x {` / `C-x }` | narrow / widen the file tree (or drag the divider) |
 | `M-x`, `Ctrl+Shift+P` | command palette |
@@ -132,6 +132,7 @@ pager_wrap = false       # start the large-file pager with soft wrap on
 tabstop = 8              # tab width in the pager
 restore_session = true   # reopen last session's files (see below)
 table_suffixes = [".csv", ".tsv"]   # files that open straight into the table
+terminal_history = 2000  # scrollback lines kept by the terminal panel
 ```
 
 Starting candat without file arguments reopens the files you had open the
@@ -151,7 +152,7 @@ and on a crash; a clean quit clears them, and if any survive they are reported
 (never auto-applied) on the next launch. Crash logs (including hard faults
 caught by `faulthandler`) land in `~/.cache/candat/`.
 
-The file tree has a filter box on top: press `/` while the tree is focused (or click it), type to narrow the tree to files whose path matches, `Esc` clears it. The file tree opens files on selection. The default theme is `candat-light`
+The file tree has a filter box on top: press `/` while the tree is focused (or click it), type to narrow the tree to files whose path matches, `Esc` clears it. `r` (or `g`, dired-style) refreshes the tree from disk — deliberately manual, since re-walking a large tree can take a moment. The file tree opens files on selection. The default theme is `candat-light`
 (high-contrast dark-on-white). The markdown preview is linked: it follows
 the editor's scroll position.
 

@@ -73,6 +73,51 @@ async def test_shell_exit_and_respawn():
         assert terminal.running
 
 
+async def test_mouse_wheel_scrolls_history():
+    from types import SimpleNamespace
+
+    app = CandatApp()
+    async with app.run_test() as pilot:
+        await chord(pilot, "ctrl+x", "t")
+        terminal = app.query_one(TerminalPane)
+        # Produce more output than the visible screen, so history exists.
+        # (Wait on the history itself: waiting on "200" in the text would
+        # match the echoed command line before any output has scrolled.)
+        for ch in "seq 1 200":
+            await pilot.press(ch)
+        await pilot.press("enter")
+        assert await wait_for(
+            pilot, lambda: len(terminal._screen.history.top) > 20
+        )
+        assert not terminal.scrolled_back
+        event = SimpleNamespace(stop=lambda: None)
+        terminal.on_mouse_scroll_up(event)  # wheel up -> into the history
+        assert terminal.scrolled_back
+        # Typing snaps back to the live view, like a real terminal.
+        for ch in "echo sna''pped":
+            await pilot.press(ch)
+        await pilot.press("enter")
+        assert await wait_for(pilot, lambda: "snapped" in terminal_text(terminal))
+        assert not terminal.scrolled_back
+        # Wheel down when already live is a no-op (the event isn't consumed).
+        terminal.on_mouse_scroll_down(event)
+        assert not terminal.scrolled_back
+
+
+async def test_scrollback_history_size_from_config():
+    from candat import config
+
+    cfg = config.config_path()
+    cfg.parent.mkdir(parents=True, exist_ok=True)
+    cfg.write_text("terminal_history = 1000\n")
+    app = CandatApp()
+    async with app.run_test() as pilot:
+        await chord(pilot, "ctrl+x", "t")
+        terminal = app.query_one(TerminalPane)
+        assert await wait_for(pilot, lambda: terminal.running)
+        assert terminal._screen.history.size == 1000
+
+
 async def test_quit_kills_shell():
     app = CandatApp()
     async with app.run_test() as pilot:

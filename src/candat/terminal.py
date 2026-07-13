@@ -21,6 +21,8 @@ from rich.text import Text
 from textual import events
 from textual.widget import Widget
 
+from . import config
+
 # ANSI palette tuned for a white background (dark-on-light, Konsole
 # BlackOnWhite-flavored, high contrast).
 ANSI_COLORS = {
@@ -157,7 +159,10 @@ class TerminalPane(Widget):
         self._spawn_pending = False
         cols = self.content_size.width
         rows = self.content_size.height
-        self._screen = pyte.HistoryScreen(cols, rows, history=2000)
+        history = config.load()["terminal_history"]
+        if not isinstance(history, int) or history < 100:
+            history = 2000
+        self._screen = pyte.HistoryScreen(cols, rows, history=history)
         self._stream = pyte.ByteStream(self._screen)
         self._exited = False
         self._line_cache.clear()
@@ -312,6 +317,21 @@ class TerminalPane(Widget):
             "history — Shift+PgDn to return" if self.scrolled_back else None
         )
         self.refresh()
+
+    def on_mouse_scroll_up(self, event: events.MouseScrollUp) -> None:
+        # Wheel scrolls the history, like a real terminal emulator.
+        if self._screen is None:
+            return
+        event.stop()
+        self._screen.prev_page()
+        self._update_scrollback_state()
+
+    def on_mouse_scroll_down(self, event: events.MouseScrollDown) -> None:
+        if self._screen is None or not self.scrolled_back:
+            return
+        event.stop()
+        self._screen.next_page()
+        self._update_scrollback_state()
 
     def on_paste(self, event: events.Paste) -> None:
         if self.running and self._fd is not None:

@@ -33,6 +33,7 @@ COMMANDS: list[tuple[str, str, str]] = [
     ("table-view", "Toggle the delimited table view of this buffer", "table_view"),
     ("isearch-forward", "Incremental search forward (C-s)", "isearch_forward"),
     ("isearch-backward", "Incremental search backward (C-r)", "isearch_backward"),
+    ("refresh-tree", "Re-read the file tree from disk (r/g in the tree)", "refresh_tree"),
     ("cycle-tree-icons", "Switch file-tree icons: emoji / nerd / ascii", "cycle_tree_icons"),
     ("tree-wider", "Widen the file-tree panel (C-x })", "grow_tree"),
     ("tree-narrower", "Narrow the file-tree panel (C-x {)", "shrink_tree"),

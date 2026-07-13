@@ -1204,6 +1204,9 @@ class CandatApp(App[None]):
         name = self.query_one(FileTree).cycle_icons()
         self.notify(f"File-tree icons: {name}", timeout=2)
 
+    async def action_refresh_tree(self) -> None:
+        await self.query_one(FileTree).action_refresh()
+
     def set_tree_width(self, cells: int, persist: bool = True) -> int:
         """Resize the file-tree panel (drag splitter, C-x { / C-x }), clamped
         to [MIN_TREE_WIDTH, half the screen]; persisted to the config."""

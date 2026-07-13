@@ -7,6 +7,16 @@ covered by the compatibility promise.
 
 ## [Unreleased]
 
+### Added
+- **File-tree refresh.** `r` (or `g`, dired-style) in the tree re-reads it
+  from disk, keeping the active filter; also `M-x refresh-tree`. Deliberately
+  manual — re-walking a large tree can take a moment, so the user decides
+  when.
+- **Mouse-wheel scrollback in the terminal.** The wheel pages through the
+  shell history like a real terminal emulator (typing still snaps back to
+  the live view), and the history depth is configurable via
+  `terminal_history` (default 2000 lines).
+
 ## [1.1.0] - 2026-07-12
 
 ### Added

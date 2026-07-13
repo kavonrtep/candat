@@ -142,9 +142,10 @@ shown up to their first 64 KB (marked with `…`).
 | --- | --- |
 | `C-c C-c` | send region or current line to the terminal REPL |
 | `C-x t` | toggle the terminal panel |
-| `Shift+PgUp/PgDn` | terminal scrollback (typing snaps back) |
+| `Shift+PgUp/PgDn`, wheel | terminal scrollback (typing snaps back) |
 | `C-x o` | cycle focus: tree → editor → terminal |
 | `/` (in file tree) | filter the tree by path; `Esc` clears |
+| `r` / `g` (in file tree) | refresh the tree from disk (keeps the filter) |
 | `C-x {` / `C-x }` | narrow / widen the file tree (or drag the divider; double-click resets) |
 | `C-c C-v` | alternate view: markdown preview cycle, or table view of any other buffer |
 | `M-x`, `Ctrl+Shift+P` | command palette |

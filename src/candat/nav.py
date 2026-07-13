@@ -56,7 +56,21 @@ def resolve_icon_set(name: str | None) -> str:
 class FileTree(DirectoryTree):
     """A DirectoryTree that can filter to files matching a substring query."""
 
-    BINDINGS = [Binding("slash", "focus_filter", "filter", show=False)]
+    BINDINGS = [
+        Binding("slash", "focus_filter", "filter", show=False),
+        # Manual refresh (dired's g, plus r) — deliberately not automatic:
+        # re-walking a large tree can block, so the user decides when.
+        Binding("r,g", "refresh", "refresh", show=False),
+    ]
+
+    async def action_refresh(self) -> None:
+        """Re-read the directory tree from disk, keeping the active filter."""
+        if self._query:
+            self._allowed = self._matching()  # re-walk the disk for matches
+            await self._reveal_matches()
+        else:
+            await self.reload()
+        self.app.notify("Tree refreshed", timeout=1.5)
 
     def __init__(self, path, icons: str | None = None, **kwargs) -> None:
         super().__init__(path, **kwargs)
