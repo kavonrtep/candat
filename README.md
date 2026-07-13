@@ -10,6 +10,32 @@ More than the basics, without leaving the terminal — emacs keys, split windows
 on the same file, live markdown preview with smart markdown editing, a CSV
 table viewer, a large-file pager, and a real shell inside.
 
+## Features
+
+- **Emacs editing** — kill ring, mark/region, incremental search with match
+  highlighting, query-replace, line moving, comment toggle, and an `M-x`
+  command palette; fixed emacs bindings by design.
+- **File tree** — live path filter, dired-style refresh and copy-path,
+  resizable by keys or mouse, configurable icons.
+- **Buffers and windows** — tabs, side-by-side or stacked splits showing the
+  same buffer as linked views with independent cursors.
+- **Markdown** — live side-by-side preview (scroll-synced), plus structural
+  editing: smart Enter for lists/quotes, `M-q` paragraph fill and table
+  alignment, table cell navigation, checkbox and emphasis helpers.
+- **Table viewer** — `.csv`/`.tsv` (or any delimited buffer) as a table with
+  no row limit, background search and regex row filter.
+- **Large-file pager** — `less`-style streaming view for multi-GB files,
+  with follow mode and background search; binary files are guarded.
+- **Terminal inside** — a real PTY panel with scrollback, and `C-c C-c` to
+  send the region or line to it as a REPL.
+- **System clipboard** — copies mirror over OSC 52 (works through SSH and
+  tmux) with a local wl-copy/xclip fallback, configurable.
+- **Safety** — atomic saves, encoding/line-ending preservation, disk-change
+  watching, session restore per project, and crash recovery snapshots.
+- **Syntax highlighting** — python, markdown, json, yaml, bash, html, xml,
+  css, toml, js, sql, go, rust, java, R, and config formats: INI/`.cfg`/
+  `.conf`, Makefiles, Dockerfiles, and shell dotfiles (`.bashrc`, `.env`, …).
+
 ## Install
 
 From [PyPI](https://pypi.org/project/candat/), as a standalone tool
@@ -226,18 +252,3 @@ uv run pytest
 ```
 
 Release history is in [CHANGELOG.md](CHANGELOG.md).
-
-## Roadmap
-
-1. ~~Skeleton: tree / tabs / status bar / C-x chords / open & save~~
-2. ~~Emacs editing: kill ring, C-s/C-r isearch, mark & region, M-x palette~~
-3. ~~Markdown mode: side-by-side live preview (debounced)~~
-4. ~~Terminal panel (full PTY: forkpty + pyte)~~
-5. ~~Polish: terminal scrollback, dirty-line rendering, path completion in
-   prompts, buffer list, scroll-synced preview, R/xml/html highlighting~~
-6. ~~Markdown editing: smart Enter for lists/quotes, M-q fill & table
-   alignment, table cell navigation, checkbox/emphasis helpers~~
-
-Syntax highlighting covers python, markdown, json, yaml, bash, html, xml,
-css, toml, js, sql, go, rust, java, R, and config formats — INI/`.cfg`/
-`.conf`, Makefiles, Dockerfiles, and shell dotfiles (`.bashrc`, `.env`, …).
