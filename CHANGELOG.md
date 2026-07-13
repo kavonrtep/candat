@@ -7,6 +7,8 @@ covered by the compatibility promise.
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-07-13
+
 ### Added
 - **System-clipboard mirroring.** Copies now also land on the system
   clipboard, via OSC 52 (works over SSH; in tmux enable
