@@ -18,10 +18,12 @@ from .csvview import CsvViewer
 from .editor import EditorBuffer
 from .pager import TextPager
 from .preview import PREVIEW_CLASSES, MarkdownPreview
+from .welcome import Welcome
 
 CSV_CLASS = "-csv-table"
 PAGER_CLASS = "-pager"
 BIGTABLE_CLASS = "-bigtable"
+WELCOME_CLASS = "-welcome"
 
 
 class BufferPane(TabPane):
@@ -31,7 +33,12 @@ class BufferPane(TabPane):
 
     def compose(self) -> ComposeResult:
         yield Horizontal(
-            self._editor, MarkdownPreview(), CsvViewer(), TextPager(), BigTable()
+            self._editor,
+            Welcome(),
+            MarkdownPreview(),
+            CsvViewer(),
+            TextPager(),
+            BigTable(),
         )
 
     # -- children ------------------------------------------------------------
@@ -66,10 +73,30 @@ class BufferPane(TabPane):
             return self.pager
         if self.is_bigtable:
             return self.bigtable
+        if self.is_welcome:
+            return self.welcome
         return self._editor
 
     def focus_visible(self) -> None:
         self.visible_widget.focus()
+
+    # -- welcome screen --------------------------------------------------------
+
+    @property
+    def welcome(self) -> Welcome:
+        return self.query_one(Welcome)
+
+    @property
+    def is_welcome(self) -> bool:
+        return self.has_class(WELCOME_CLASS)
+
+    def enter_welcome_mode(self) -> None:
+        """Show the startup splash in place of the (empty) editor."""
+        self.add_class(WELCOME_CLASS)
+        self.call_after_refresh(self.welcome.focus)
+
+    def leave_welcome_mode(self) -> None:
+        self.remove_class(WELCOME_CLASS)
 
     # -- markdown preview ----------------------------------------------------
 

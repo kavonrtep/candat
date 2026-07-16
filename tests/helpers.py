@@ -40,6 +40,11 @@ async def editor_with_text(text: str = "", path: Path | None = None):
     async with open_app([path] if path else None) as (app, pilot):
         editor = app.active_editor
         if path is None:
+            # The bare startup shows the welcome splash; these tests want a
+            # plain scratch buffer with the editor focused.
+            if (pane := app.active_pane) is not None:
+                pane.leave_welcome_mode()
+            editor.focus()
             editor.text = text
             editor.selection = Selection((0, 0), (0, 0))
         await pilot.pause()

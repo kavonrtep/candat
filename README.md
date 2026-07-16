@@ -67,6 +67,8 @@ candat [FILE|DIR ...]
 ```
 
 Passing a directory sets the file-tree root; files are opened in buffers.
+Started bare, candat shows a welcome screen with the essential keys — type
+to turn it into a scratch buffer, or `C-x C-f` straight into a file.
 
 ## Keys (so far)
 

@@ -7,6 +7,20 @@ covered by the compatibility promise.
 
 ## [Unreleased]
 
+### Added
+- **Welcome screen.** Starting candat with nothing to open (no file
+  arguments, no session to restore) shows a splash — the candat zander in
+  braille art, the version, and the essential keys — instead of a bare
+  untitled buffer. Typing dismisses it and drops the first character into
+  the scratch buffer; opening a file replaces it. The art regenerates from
+  `docs/candat-fish.png` with `docs/make_fish.py`.
+
+### Fixed
+- **M-q left the cursor at its old screen position.** After a paragraph
+  fill (or table alignment) the cursor now stays anchored to the character
+  it was on — it follows the text through the reflow instead of staying at
+  the same row/column and landing mid-sentence somewhere else.
+
 ## [1.3.1] - 2026-07-16
 
 ### Fixed

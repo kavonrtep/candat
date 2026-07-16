@@ -133,6 +133,18 @@ class CandatApp(App[None]):
     TabPane.-csv-table EditorBuffer {
         display: none;
     }
+    Welcome {
+        display: none;
+        width: 1fr;
+        height: 1fr;
+        content-align: center middle;
+    }
+    TabPane.-welcome Welcome {
+        display: block;
+    }
+    TabPane.-welcome EditorBuffer {
+        display: none;
+    }
     TextPager {
         display: none;
         width: 1fr;
@@ -207,7 +219,12 @@ class CandatApp(App[None]):
             for path in self._files:
                 await self._open_path(path)
         elif not await self._restore_session():
+            # Nothing to show: the untitled buffer opens as a welcome screen
+            # (typing or opening a file dismisses it).
             await self._new_buffer()
+            if (pane := self.active_pane) is not None:
+                pane.enter_welcome_mode()
+            self._refresh_status()
         self.set_interval(1.0, self._check_disk_changes)
         self.set_interval(20.0, self._autosave_recovery)
         self._announce_recovery()
@@ -441,6 +458,7 @@ class CandatApp(App[None]):
             and not current.editor.modified
             and not current.editor.text
         ):
+            current.leave_welcome_mode()
             editor = current.editor
             if path.exists() and not is_csv and not is_large:
                 editor.load(path)
@@ -532,6 +550,12 @@ class CandatApp(App[None]):
             where = pane.bigtable.path or pane.editor.display_name
             status.update(f" %% {where}   big table   [dim]F1 help[/]")
             self.sub_title = str(pane.bigtable.path or "")
+            return
+        if pane is not None and pane.is_welcome:
+            status.update(
+                " candat — start typing, or C-x C-f to open a file   [dim]F1 help[/]"
+            )
+            self.sub_title = ""
             return
         editor = self.active_editor
         status.show(editor)
@@ -685,6 +709,12 @@ class CandatApp(App[None]):
             self._refresh_tab_label(editor)
             if editor.language == "markdown":
                 self._schedule_preview(editor)
+            # A welcome buffer that gains text (however it happens) is a
+            # scratch buffer now.
+            pane = pane_of(editor)
+            if pane is not None and pane.is_welcome and editor.text:
+                pane.leave_welcome_mode()
+                editor.focus()
         self._refresh_status()
 
     @on(TextArea.SelectionChanged)
