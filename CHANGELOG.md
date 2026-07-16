@@ -7,6 +7,8 @@ covered by the compatibility promise.
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-07-16
+
 ### Fixed
 - **Freezes (and possible out-of-memory crashes) with longer markdown
   files.** The live preview rebuilt a widget per markdown block on the UI
