@@ -19,9 +19,10 @@ table viewer, a large-file pager, and a real shell inside.
   resizable by keys or mouse, configurable icons.
 - **Buffers and windows** — tabs, side-by-side or stacked splits showing the
   same buffer as linked views with independent cursors.
-- **Markdown** — live side-by-side preview (scroll-synced), plus structural
-  editing: smart Enter for lists/quotes, `M-q` paragraph fill and table
-  alignment, table cell navigation, checkbox and emphasis helpers.
+- **Markdown** — live side-by-side preview (scroll-synced, rendered in the
+  background so big documents never block typing), plus structural editing:
+  smart Enter for lists/quotes, `M-q` paragraph fill and table alignment,
+  table cell navigation, checkbox and emphasis helpers.
 - **Table viewer** — `.csv`/`.tsv` (or any delimited buffer) as a table with
   no row limit, background search and regex row filter.
 - **Large-file pager** — `less`-style streaming view for multi-GB files,

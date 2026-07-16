@@ -7,6 +7,18 @@ covered by the compatibility promise.
 
 ## [Unreleased]
 
+### Fixed
+- **Freezes (and possible out-of-memory crashes) with longer markdown
+  files.** The live preview rebuilt a widget per markdown block on the UI
+  thread on every debounced edit — ~30 seconds frozen for a 130 KB file.
+  The preview now pre-renders in a background thread (in chunks, so it
+  yields the CPU and aborts early when you keep typing) and the UI only
+  blits the visible lines: opening a 539 KB document went from a hard
+  freeze to ~1 s, and typing in it from ~2 s per keystroke to ~0.2 s.
+  Documents over 1 MB show a placeholder instead of a live preview, and
+  the preview debounce now grows with document size. The file-tree filter
+  walk also moved off the UI thread for large directory structures.
+
 ## [1.3.0] - 2026-07-13
 
 ### Added

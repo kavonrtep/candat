@@ -1,13 +1,18 @@
-"""Tests for the live markdown preview."""
+"""Tests for the live markdown preview.
+
+The preview renders in a background thread and blits pre-rendered line
+strips, so tests wait for the rendered text to appear rather than querying
+a widget tree.
+"""
 
 import asyncio
 from pathlib import Path
 
 import pytest
-from textual.widgets import Markdown
 
 from candat.app import CandatApp
-from helpers import chord
+from candat.preview import PREVIEW_MAX_BYTES
+from helpers import chord, wait_for
 
 pytestmark = pytest.mark.asyncio
 
@@ -22,8 +27,8 @@ async def test_markdown_opens_in_split_preview(tmp_path: Path):
         assert pane.preview_mode == "split"
         preview = pane.preview
         assert preview.styles.display != "none"
-        # Rendered document contains the heading text.
-        assert pane.query_one(Markdown).source.startswith("# Title")
+        # The background render lands shortly after mount.
+        assert await wait_for(pilot, lambda: "Title" in preview.plain_text())
 
 
 async def test_non_markdown_has_no_preview(tmp_path: Path):
@@ -66,7 +71,48 @@ async def test_preview_updates_after_debounce(tmp_path: Path):
         pane = app.tabs.active_pane
         editor = app.active_editor
         editor.text = "# Fresh heading\n"
-        # Debounce is 0.3s; wait it out, then let the update land.
+        # Debounce is 0.3s; the background render lands after it.
         await asyncio.sleep(0.5)
+        assert await wait_for(
+            pilot, lambda: "Fresh heading" in pane.preview.plain_text()
+        )
+
+
+async def test_rapid_edits_coalesce_to_latest(tmp_path: Path):
+    note = tmp_path / "note.md"
+    note.write_text("start\n")
+    app = CandatApp([note])
+    async with app.run_test() as pilot:
         await pilot.pause()
-        assert pane.query_one(Markdown).source == "# Fresh heading\n"
+        pane = app.tabs.active_pane
+        # Several generations before any render can finish: only the last
+        # text must end up in the preview.
+        for i in range(5):
+            await pane.preview.render_text(f"version {i}\n")
+        assert await wait_for(pilot, lambda: "version 4" in pane.preview.plain_text())
+
+
+async def test_huge_document_shows_placeholder(tmp_path: Path):
+    note = tmp_path / "big.md"
+    note.write_text("start\n")
+    app = CandatApp([note])
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        pane = app.tabs.active_pane
+        big = "word " * (PREVIEW_MAX_BYTES // 5 + 100)
+        await pane.preview.render_text(big)
+        assert await wait_for(
+            pilot, lambda: "Preview disabled" in pane.preview.plain_text()
+        )
+
+
+async def test_preview_scrolls_with_content(tmp_path: Path):
+    note = tmp_path / "long.md"
+    note.write_text("\n\n".join(f"## Head {i}" for i in range(200)))
+    app = CandatApp([note])
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        pane = app.tabs.active_pane
+        preview = pane.preview
+        assert await wait_for(pilot, lambda: "Head 199" in preview.plain_text())
+        assert preview.max_scroll_y > 0  # virtual size covers the document

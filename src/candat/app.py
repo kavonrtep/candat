@@ -553,8 +553,11 @@ class CandatApp(App[None]):
         if timer := getattr(editor, "_preview_timer", None):
             timer.stop()
         preview = pane.preview
+        # The render runs off the UI thread, but it still costs CPU that
+        # competes with typing — a larger document waits for a longer pause.
+        delay = min(2.0, 0.3 + editor.document.line_count / 20_000)
         editor._preview_timer = self.set_timer(
-            0.3, lambda: preview.render_text(editor.text)
+            delay, lambda: preview.render_text(editor.text)
         )
 
     def _toggle_csv_view(self, pane: BufferPane) -> None:

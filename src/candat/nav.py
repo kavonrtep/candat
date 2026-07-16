@@ -8,6 +8,7 @@ full lazy tree.
 
 from __future__ import annotations
 
+import asyncio
 import os
 from pathlib import Path
 from typing import Iterable
@@ -81,7 +82,9 @@ class FileTree(DirectoryTree):
     async def action_refresh(self) -> None:
         """Re-read the directory tree from disk, keeping the active filter."""
         if self._query:
-            self._allowed = self._matching()  # re-walk the disk for matches
+            # Re-walk the disk for matches, off the UI thread: a huge tree
+            # must not freeze the app while it is scanned.
+            self._allowed = await asyncio.to_thread(self._matching)
             await self._reveal_matches()
         else:
             await self.reload()
@@ -128,7 +131,7 @@ class FileTree(DirectoryTree):
             self._allowed = set()
             await self.reload()
             return
-        self._allowed = self._matching()
+        self._allowed = await asyncio.to_thread(self._matching)
         await self._reveal_matches()
 
     async def _reveal_matches(self) -> None:
