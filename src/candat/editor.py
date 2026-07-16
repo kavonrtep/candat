@@ -1109,9 +1109,12 @@ class EditorBuffer(TextArea):
         start, end, new, what = result
         if new == lines[start : end + 1]:
             return
+        # Keep the cursor on the same character through the reflow.
+        new_row, new_col = markdown.remap_point(
+            lines[start : end + 1], new, row - start, col
+        )
         self._replace_keeping_view("\n".join(new), (start, 0), (end, len(lines[end])))
-        row = min(row, start + len(new) - 1)
-        spot = (row, min(col, len(new[row - start])))
+        spot = (start + new_row, new_col)
         self.selection = Selection(spot, spot)
         self.app.notify(
             "Aligned table" if what == "table" else "Filled paragraph", timeout=1.5

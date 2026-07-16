@@ -217,6 +217,37 @@ def test_reformat_dispatches_table_vs_paragraph():
     assert markdown.reformat(["```", "|a|", "```"], 1, 80) is None
 
 
+def test_remap_point_through_a_fill():
+    old = ["aaa bbb ccc ddd eee"]
+    new = ["aaa bbb", "ccc ddd", "eee"]
+    # cursor in the gap before "ccc" anchors to the word before it
+    assert markdown.remap_point(old, new, 0, 8) == (0, 7)
+    # cursor ON the second c of "ccc" (8 non-ws before point) follows it
+    assert markdown.remap_point(old, new, 0, 10) == (1, 2)
+    # cursor at the very start stays at the start
+    assert markdown.remap_point(old, new, 0, 0) == (0, 0)
+    # cursor at the end lands at the end
+    row, col = markdown.remap_point(old, new, 0, len(old[0]))
+    assert (row, col) == (2, 3)
+
+
+def test_remap_point_quote_prefixes_do_not_count():
+    old = ["> aaa bbb ccc"]
+    new = ["> aaa bbb", "> ccc"]
+    # cursor on "ccc" (inside the quote): '>' chars must not skew the count
+    row, col = markdown.remap_point(old, new, 0, 12)
+    assert (row, col) == (1, 4)  # after "cc" on the second quoted line
+
+
+def test_remap_point_table_alignment_only_moves_padding():
+    old = ["|a|bb|", "|-|-|", "|long|x|"]
+    _, _, new = markdown.align_table(old, 0)
+    # cursor after "bb" in the header
+    row, col = markdown.remap_point(old, new, 0, 5)
+    assert row == 0
+    assert new[0][:col].endswith("bb")
+
+
 # -- pure: ordered lists -------------------------------------------------------
 
 
@@ -385,6 +416,22 @@ async def test_fill_paragraph_via_meta_q(tmp_path):
         lines = editor.text.splitlines()
         assert len(lines) > 1
         assert all(len(line) <= 80 for line in lines)
+
+
+async def test_fill_keeps_cursor_on_its_character(tmp_path):
+    text = ("alpha " * 20) + "TARGET tail words here"
+    async with editor_with_text(path=md_file(tmp_path, text + "\n")) as (
+        app,
+        pilot,
+        editor,
+    ):
+        target_col = text.index("TARGET") + 3  # inside the word
+        editor.selection = Selection((0, target_col), (0, target_col))
+        await pilot.press("alt+q")
+        row, col = editor.point
+        assert row > 0  # the paragraph wrapped
+        line = editor.document.get_line(row)
+        assert line[col - 3 : col + 3] == "TARGET"  # still inside TARGET
 
 
 async def test_meta_q_aligns_table(tmp_path):

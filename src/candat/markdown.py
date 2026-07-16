@@ -353,6 +353,48 @@ def _fill_quote(
     return start, end, wrapped
 
 
+def remap_point(
+    old_lines: list[str], new_lines: list[str], row: int, col: int
+) -> tuple[int, int]:
+    """Map a cursor position through a reflow of the same text.
+
+    Filling and table alignment only move whitespace around (and blockquote
+    fills repeat the per-line `>` prefix a different number of times), so
+    the cursor is anchored to its character: count the non-whitespace
+    characters before point — quote prefixes excluded — and place the
+    cursor after the same count in the new lines. `row` is relative to the
+    block; the returned row is too.
+    """
+
+    def body_of(line: str) -> tuple[int, str]:
+        m = QUOTE_RE.match(line)
+        if m is not None:
+            prefix = m["prefix"]
+            return len(prefix), line[len(prefix):]
+        return 0, line
+
+    n = 0
+    for r, line in enumerate(old_lines):
+        offset, body = body_of(line)
+        if r == row:
+            n += sum(1 for ch in body[: max(0, col - offset)] if not ch.isspace())
+            break
+        n += sum(1 for ch in body if not ch.isspace())
+    if n == 0:
+        offset, body = body_of(new_lines[0])
+        return 0, offset + (len(body) - len(body.lstrip()))
+    count = 0
+    for r, line in enumerate(new_lines):
+        offset, body = body_of(line)
+        for i, ch in enumerate(body):
+            if not ch.isspace():
+                count += 1
+                if count == n:
+                    return r, offset + i + 1
+    last = len(new_lines) - 1
+    return last, len(new_lines[last])
+
+
 def reformat(
     lines: list[str], row: int, width: int
 ) -> tuple[int, int, list[str], str] | None:
