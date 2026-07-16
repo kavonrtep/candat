@@ -7,6 +7,8 @@ covered by the compatibility promise.
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-07-16
+
 ### Added
 - **Welcome screen.** Starting candat with nothing to open (no file
   arguments, no session to restore) shows a splash — the candat zander in
