@@ -1162,8 +1162,14 @@ class EditorBuffer(TextArea):
         self.mark_active = False
         self.selection = Selection(result.end_location, result.end_location)
 
-    async def _on_paste(self, event: events.Paste) -> None:
-        # Pasting a URL over selected markdown text turns it into a link.
+    def _on_paste(self, event: events.Paste) -> None:
+        """Pasting a URL over selected markdown text turns it into a link.
+
+        Textual invokes each class's own ``_on_paste`` along the MRO, so
+        TextArea's default insert still runs after this handler — unless the
+        URL path claims the paste with prevent_default(). Calling
+        ``super()._on_paste()`` here would therefore insert the text twice.
+        """
         if (
             self.language == "markdown"
             and not self.read_only
@@ -1181,8 +1187,6 @@ class EditorBuffer(TextArea):
                 )
                 self.mark_active = False
                 self.selection = Selection(result.end_location, result.end_location)
-                return
-        await super()._on_paste(event)
 
     # -- isearch ---------------------------------------------------------------
 

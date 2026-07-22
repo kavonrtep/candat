@@ -522,17 +522,30 @@ async def test_paste_url_over_selection_makes_link(tmp_path):
         editor,
     ):
         editor.selection = Selection((0, 8), (0, 12))  # "docs"
-        await editor._on_paste(events.Paste("https://example.org/docs"))
+        # Like a real terminal paste: the driver posts to the app, which
+        # forwards to the focused widget.
+        app.post_message(events.Paste("https://example.org/docs"))
         await pilot.pause()
         assert editor.text.splitlines()[0] == "see the [docs](https://example.org/docs) here"
 
 
-async def test_paste_plain_text_unaffected(tmp_path):
+async def test_paste_inserts_exactly_once(tmp_path):
+    # Textual dispatches _on_paste for every class in the MRO; the editor's
+    # own handler must not ALSO call the default one, or every terminal
+    # paste (e.g. Ctrl+Shift+V in Konsole) lands twice.
     async with editor_with_text(path=md_file(tmp_path, "ab\n")) as (app, pilot, editor):
         editor.selection = Selection((0, 0), (0, 2))
-        await editor._on_paste(events.Paste("plain"))
+        app.post_message(events.Paste("plain"))
         await pilot.pause()
         assert editor.text.splitlines()[0] == "plain"
+
+
+async def test_paste_once_in_non_markdown_buffer():
+    async with editor_with_text("start ") as (app, pilot, editor):
+        editor.selection = Selection((0, 6), (0, 6))
+        app.post_message(events.Paste("pasted"))
+        await pilot.pause()
+        assert editor.text.splitlines()[0] == "start pasted"
 
 
 async def test_smart_keys_off_outside_markdown():

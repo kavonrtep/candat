@@ -7,6 +7,13 @@ covered by the compatibility promise.
 
 ## [Unreleased]
 
+### Fixed
+- **Terminal paste inserted the text twice.** Pasting into a buffer with the
+  terminal's own paste (e.g. `Ctrl+Shift+V` in Konsole) inserted two copies
+  — Textual dispatches every class's paste handler along the inheritance
+  chain, and the editor's markdown-link handler *also* invoked the default
+  one explicitly. One paste, one insert, one undo step now.
+
 ## [1.4.0] - 2026-07-16
 
 ### Added
