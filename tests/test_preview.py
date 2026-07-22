@@ -101,8 +101,13 @@ async def test_huge_document_shows_placeholder(tmp_path: Path):
         pane = app.tabs.active_pane
         big = "word " * (PREVIEW_MAX_BYTES // 5 + 100)
         await pane.preview.render_text(big)
+        # Generous timeout: the render coalesces behind the initial one in a
+        # background thread, which can be slow on a loaded CI runner (this
+        # timed out at the default 8s on the v1.4.1 release run).
         assert await wait_for(
-            pilot, lambda: "Preview disabled" in pane.preview.plain_text()
+            pilot,
+            lambda: "Preview disabled" in pane.preview.plain_text(),
+            timeout=30.0,
         )
 
 
