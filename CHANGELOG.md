@@ -7,6 +7,8 @@ covered by the compatibility promise.
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-07-22
+
 ### Fixed
 - **Terminal paste inserted the text twice.** Pasting into a buffer with the
   terminal's own paste (e.g. `Ctrl+Shift+V` in Konsole) inserted two copies
