@@ -31,3 +31,27 @@ jobs:
       - uses: astral-sh/setup-uv@v7
       - run: uv build
       - run: uv publish --trusted-publishing always
+
+  github-release:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Extract this version's section from the changelog
+        run: |
+          awk -v ver="${GITHUB_REF_NAME#v}" '
+            $0 ~ "^## \\[" ver "\\]" {on=1; next}
+            on && /^## \[/ {exit}
+            on {print}
+          ' CHANGELOG.md > notes.md
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -s notes.md ]; then
+            gh release create "$GITHUB_REF_NAME" --title "candat ${GITHUB_REF_NAME#v}" --notes-file notes.md
+          else
+            gh release create "$GITHUB_REF_NAME" --title "candat ${GITHUB_REF_NAME#v}" --generate-notes
+          fi
