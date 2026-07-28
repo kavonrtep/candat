@@ -242,3 +242,43 @@ async def test_copied_path_yanks_into_a_buffer(tmp_path):
         editor.focus()
         await pilot.press("ctrl+y")
         assert copied in editor.text
+
+
+async def test_toggle_tree_hides_shows_and_persists(tmp_path):
+    from candat import config
+    from candat.nav import TreeSplitter
+
+    root = make_tree(tmp_path)
+    async with open_app([root]) as (app, pilot):
+        if (pane := app.active_pane) is not None:
+            pane.leave_welcome_mode()
+        nav = app.query_one(NavPanel)
+        await chord(pilot, "ctrl+x", "d")
+        assert nav.has_class("-hidden")
+        assert app.query_one(TreeSplitter).has_class("-hidden")
+        assert config.load()["tree_visible"] is False
+        # Hiding hands focus to the editor — the point of the feature.
+        assert app.focused is app.active_editor
+        await chord(pilot, "ctrl+x", "d")
+        assert not nav.has_class("-hidden")
+        assert not app.query_one(TreeSplitter).has_class("-hidden")
+        assert config.load()["tree_visible"] is True
+        assert app.focused is app.query_one(FileTree)
+
+
+async def test_hidden_tree_restored_on_startup_and_skipped_by_other_window(tmp_path):
+    from candat import config
+
+    config.save_setting("tree_visible", False)
+    root = make_tree(tmp_path)
+    async with open_app([root]) as (app, pilot):
+        if (pane := app.active_pane) is not None:
+            pane.leave_welcome_mode()
+        assert app.query_one(NavPanel).has_class("-hidden")
+        # C-x o must not try to focus the hidden tree.
+        editor = app.active_editor
+        editor.focus()
+        await chord(pilot, "ctrl+x", "o")
+        assert app.focused is editor
+        # Startup restore alone must not rewrite the config file.
+        assert config.load()["tree_visible"] is False

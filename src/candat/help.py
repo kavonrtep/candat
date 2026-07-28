@@ -164,6 +164,7 @@ shown up to their first 64 KB (marked with `…`).
 | `C-x t` | toggle the terminal panel |
 | `Shift+PgUp/PgDn`, wheel | terminal scrollback (typing snaps back) |
 | `C-x o` | cycle focus: tree → editor → terminal |
+| `C-x d` | show/hide the file tree (remembered across runs) |
 | `/` (in file tree) | filter the tree by path; `Esc` clears |
 | `r` / `g` (in file tree) | refresh the tree from disk (keeps the filter) |
 | `w` / `M-w` (in file tree) | copy the selection's absolute path to the kill ring (`C-y` pastes it) |

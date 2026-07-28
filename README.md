@@ -112,6 +112,7 @@ to turn it into a scratch buffer, or `C-x C-f` straight into a file.
 | `C-c C-t` | markdown: toggle a `[ ]`/`[x]` checkbox |
 | `C-c b` / `C-c i` / `C-c c` | markdown: bold / italic / inline-code the region or word |
 | `C-x {` / `C-x }` | narrow / widen the file tree (or drag the divider) |
+| `C-x d` | show / hide the file tree (remembered across runs) |
 | `M-x`, `Ctrl+Shift+P` | command palette |
 | `C-g` / `Esc` | cancel chord / prompt / search / mark |
 
@@ -172,6 +173,7 @@ The file-tree icons are emoji by default; if your terminal renders them poorly
 ```toml
 tree_icons = "emoji"     # or "nerd" / "ascii"; cycle-tree-icons saves here
 tree_width = 32          # file-tree width; C-x {/} and the splitter save here
+tree_visible = true      # show the file tree; C-x d toggles and saves here
 pager_wrap = false       # start the large-file pager with soft wrap on
 tabstop = 8              # tab width in the pager
 restore_session = true   # reopen last session's files (see below)

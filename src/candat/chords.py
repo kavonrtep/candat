@@ -31,6 +31,7 @@ CTRL_X_MAP: dict[str, tuple[str, str]] = {
     "h": ("mark_whole_buffer", "mark whole buffer"),
     "u": ("undo_buffer", "undo"),
     "t": ("toggle_terminal", "toggle terminal"),
+    "d": ("toggle_tree", "toggle file tree"),
     "g": ("project_search", "search project"),
     "w": ("toggle_soft_wrap", "toggle soft wrap"),
     "right_curly_bracket": ("grow_tree", "widen file tree"),

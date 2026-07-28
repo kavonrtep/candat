@@ -41,6 +41,7 @@ COMMANDS: list[tuple[str, str, str]] = [
     ("refresh-tree", "Re-read the file tree from disk (r/g in the tree)", "refresh_tree"),
     ("copy-file-name", "Copy the tree selection's absolute path to the kill ring (w in the tree)", "copy_tree_path"),
     ("cycle-tree-icons", "Switch file-tree icons: emoji / nerd / ascii", "cycle_tree_icons"),
+    ("toggle-tree", "Show/hide the file-tree panel (C-x d)", "toggle_tree"),
     ("tree-wider", "Widen the file-tree panel (C-x })", "grow_tree"),
     ("tree-narrower", "Narrow the file-tree panel (C-x {)", "shrink_tree"),
     ("help", "Show all keybindings (F1, C-x ?)", "help"),

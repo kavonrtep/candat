@@ -83,6 +83,10 @@ class CandatApp(App[None]):
         height: 1fr;
     }
     /* The TreeSplitter draws the divider (and is the drag handle). */
+    NavPanel.-hidden,
+    TreeSplitter.-hidden {
+        display: none;
+    }
     #groups {
         width: 1fr;
         layout: horizontal;
@@ -215,6 +219,8 @@ class CandatApp(App[None]):
     async def on_mount(self) -> None:
         self.register_theme(CANDAT_LIGHT)
         self.theme = "candat-light"
+        if not config.load()["tree_visible"]:
+            self._set_tree_visible(False, persist=False)
         if self._files:
             for path in self._files:
                 await self._open_path(path)
@@ -1138,12 +1144,14 @@ class CandatApp(App[None]):
         """C-x o: cycle focus tree -> each window -> terminal (when open)."""
         tree = self.query_one(DirectoryTree)
         terminal = self.query_one(TerminalPane)
-        ring: list = [tree]
+        ring: list = [] if self.query_one(NavPanel).has_class("-hidden") else [tree]
         for group in self.groups():
             if (pane := group.active_pane) is not None:
                 ring.append(pane.visible_widget)
         if terminal.has_class("-open"):
             ring.append(terminal)
+        if not ring:
+            return
         focused = self.focused
         for index, widget in enumerate(ring):
             if focused is widget or (focused is not None and widget in focused.ancestors_with_self):
@@ -1278,6 +1286,22 @@ class CandatApp(App[None]):
         current = self.query_one(NavPanel).outer_size.width
         width = self.set_tree_width(current + delta)
         self.notify(f"Tree width: {width}", timeout=1.5)
+
+    def _set_tree_visible(self, visible: bool, persist: bool = True) -> None:
+        self.query_one(NavPanel).set_class(not visible, "-hidden")
+        self.query_one(TreeSplitter).set_class(not visible, "-hidden")
+        if persist:
+            config.save_setting("tree_visible", visible)
+
+    def action_toggle_tree(self) -> None:
+        """C-x d: show/hide the file-tree panel; the choice persists across
+        runs, like the terminal but for the other side of the screen."""
+        showing = self.query_one(NavPanel).has_class("-hidden")
+        self._set_tree_visible(showing)
+        if showing:
+            self.query_one(FileTree).focus()
+        elif (editor := self.active_editor) is not None:
+            editor.focus()
 
     def action_grow_tree(self) -> None:
         """C-x }: widen the file tree (enlarge-window-horizontally)."""
