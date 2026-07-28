@@ -7,6 +7,16 @@ covered by the compatibility promise.
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-07-28
+
+### Added
+- **Hide/show the file tree with `C-x d`.** The panel (and its drag
+  splitter) folds away to leave the whole width to the editors, and comes
+  back at the width you left it. The choice is saved to `tree_visible` in
+  the config, so it sticks across runs; `C-x o` skips the tree while it is
+  hidden. Hiding focuses the editor, showing focuses the tree — mirroring
+  `C-x t` for the terminal. Also in the palette as `toggle-tree`.
+
 ## [1.4.1] - 2026-07-22
 
 ### Fixed
