@@ -7,6 +7,17 @@ covered by the compatibility promise.
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-08-05
+
+### Fixed
+- **Toggling a big CSV/TSV between table and text view re-indexed the file
+  every time.** Both views share the same sparse line index, but each
+  `C-x C-v` switch threw it away and rescanned the whole file. The index is
+  now kept in a small cache (validated against the file's inode, size and
+  mtime, so a changed file still triggers a rescan) and handed between the
+  views — switching modes on an unchanged file is instant, and an index
+  interrupted mid-build resumes instead of starting over.
+
 ## [1.5.0] - 2026-07-28
 
 ### Added
