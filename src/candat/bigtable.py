@@ -6,8 +6,10 @@ rows, a dead end for the multi-million-row files this widget exists for.
 
 Here the file stays on disk behind the pager's sparse line index (built by a
 background worker; the table renders and scrolls immediately while indexing
-continues, csvlens-style). Only the visible viewport is read and parsed per
-frame, so ten million rows cost the same as a hundred. Search scans the whole
+continues, csvlens-style — and reused via the pager's index cache, so
+toggling the same unchanged file between table and pager view is instant).
+Only the visible viewport is read and parsed per frame, so ten million rows
+cost the same as a hundred. Search scans the whole
 file once on a worker thread and collects *every* matching row number, so
 ``n`` / ``N`` are instant bisects and the status bar shows "match k/M" — the
 same design csvlens uses.
@@ -37,7 +39,15 @@ from textual.widget import Widget
 from textual.worker import get_current_worker
 
 from .csvview import CELL_MAX, delimiter_label, parse_delimiter, sniff_sample
-from .pager import CHUNK, SPARSE_STEP, LineIndex, _cell_crop, _FileReader, smartcase_pattern
+from .pager import (
+    CHUNK,
+    INDEX_CACHE,
+    SPARSE_STEP,
+    LineIndex,
+    _cell_crop,
+    _FileReader,
+    smartcase_pattern,
+)
 
 MAX_COL_FRACTION = 0.35  # one column may take at most this much of the width
 COL_GAP = 2
@@ -163,6 +173,15 @@ class BigTable(Widget, can_focus=True):
         sample = reader.read(0, 8192).decode("utf-8", "replace")
         sniffed, self._has_header = sniff_sample(sample, path.suffix.lower())
         self._delimiter = delimiter or sniffed
+        cached = INDEX_CACHE.take(path)
+        if cached is not None:
+            # The pager (or an earlier table view) already indexed this
+            # unchanged file — reuse it; a partial index resumes below.
+            self._index = cached
+            self._indexing = not cached.complete
+        if not self._indexing:
+            self._moved()
+            return
         self.refresh()
         # Index in the background; the table renders and scrolls immediately,
         # growing as the worker gets further into the file (csvlens-style).
@@ -207,10 +226,17 @@ class BigTable(Widget, can_focus=True):
             self._reader.close()
             self._reader = None
 
+    def _deposit_index(self) -> None:
+        """Hand the built index to the cache, so switching this file back to
+        the pager (or reopening it) doesn't rescan."""
+        if self._reader is not None and self.path is not None:
+            INDEX_CACHE.put(self.path, self._reader.fd, self._index)
+
     def unload(self) -> None:
         self._generation += 1
         self._search_seq += 1
         self._search_running = False
+        self._deposit_index()
         self._close_reader()
         self.path = None
         self._index = LineIndex()
@@ -225,6 +251,7 @@ class BigTable(Widget, can_focus=True):
     def on_unmount(self) -> None:
         self._generation += 1
         self._search_seq += 1
+        self._deposit_index()
         self._close_reader()
 
     def _moved(self) -> None:

@@ -11,6 +11,10 @@ visible viewport is read and rendered, and a single file line is read at most
 characters, so tabs, CJK and emoji line up. Searching scans the file in
 chunks on a worker thread and is cancellable, so the UI never blocks on a
 big scan.
+
+Built indexes are kept in a small cache (:data:`INDEX_CACHE`) shared with the
+windowed table view, so toggling a file between the pager and table modes —
+or reopening it — reuses the index instead of rescanning the file.
 """
 
 from __future__ import annotations
@@ -126,6 +130,59 @@ class LineIndex:
                 on_chunk(self.scanned, size)
         self.complete = True
         return True
+
+
+class _IndexCache:
+    """Recently built line indexes keyed by file path, so toggling a big file
+    between the pager and the windowed table (C-x C-v) — or reopening it —
+    reuses the existing index instead of rescanning gigabytes.
+
+    An entry is validated against the file's identity (inode, size, mtime)
+    when taken and dropped if the file changed since it was indexed. take()
+    removes the entry: the taker owns and may mutate the index (growth scans),
+    and deposits it back on unload.
+    """
+
+    MAX_ENTRIES = 8
+
+    def __init__(self) -> None:
+        self._entries: OrderedDict[Path, tuple[tuple[int, int, int], LineIndex]] = (
+            OrderedDict()
+        )
+
+    def put(self, path: Path, fd: int, index: LineIndex) -> None:
+        if index.scanned == 0:
+            return  # nothing indexed yet — not worth keeping
+        try:
+            st = os.fstat(fd)
+        except OSError:
+            return
+        if index.scanned > st.st_size:
+            return  # truncated underneath us: the index is invalid
+        if index.scanned < st.st_size:
+            # A budget-capped growth scan can stop early without clearing the
+            # flag; a resumed scan() finishes the tail and sets it again.
+            index.complete = False
+        self._entries.pop(path, None)
+        self._entries[path] = ((st.st_ino, st.st_size, st.st_mtime_ns), index)
+        while len(self._entries) > self.MAX_ENTRIES:
+            self._entries.popitem(last=False)
+
+    def take(self, path: Path) -> LineIndex | None:
+        entry = self._entries.pop(path, None)
+        if entry is None:
+            return None
+        sig, index = entry
+        try:
+            st = os.stat(path)
+        except OSError:
+            return None
+        if (st.st_ino, st.st_size, st.st_mtime_ns) != sig:
+            return None  # the file changed since it was indexed
+        return index
+
+
+INDEX_CACHE = _IndexCache()
 
 
 def smartcase_pattern(query: str) -> re.Pattern[bytes]:
@@ -321,21 +378,35 @@ class TextPager(Widget, can_focus=True):
         self.match_line = None
         self._match_byte = None
         self.refresh()
+        cached = INDEX_CACHE.take(path)
+        if cached is not None and cached.complete:
+            # An earlier view of this unchanged file (pager or table mode)
+            # already indexed it — install the index without any scan.
+            try:
+                reader = _FileReader(path)
+            except OSError:
+                cached = None
+            else:
+                self._reader = reader
+                self._index = cached
+                self._indexing = False
+                self._moved()
+                return
         self.run_worker(
-            partial(self._open_worker, path, self._generation),
+            partial(self._open_worker, path, self._generation, cached),
             thread=True,
             exclusive=True,
             group="pager-open",
         )
 
-    def _open_worker(self, path: Path, gen: int) -> None:
+    def _open_worker(self, path: Path, gen: int, resume: LineIndex | None = None) -> None:
         worker = get_current_worker()
         try:
             reader = _FileReader(path)
         except OSError:
             self.app.call_from_thread(self._install, gen, None, LineIndex())
             return
-        index = LineIndex()
+        index = resume if resume is not None else LineIndex()
         last_report = 0
 
         def on_chunk(scanned: int, size: int) -> None:
@@ -376,6 +447,12 @@ class TextPager(Widget, can_focus=True):
             self._reader.close()
             self._reader = None
 
+    def _deposit_index(self) -> None:
+        """Hand the built index to the cache, so switching this file to the
+        table view (or reopening it) doesn't rescan."""
+        if self._reader is not None and self.path is not None:
+            INDEX_CACHE.put(self.path, self._reader.fd, self._index)
+
     def unload(self) -> None:
         """Detach from the file (leaving pager mode): invalidate any running
         workers, stop following and release the file handle."""
@@ -383,6 +460,7 @@ class TextPager(Widget, can_focus=True):
         self._search_seq += 1
         self._search_running = False
         self.stop_follow()
+        self._deposit_index()
         self._close_reader()
         self.path = None
         self._index = LineIndex()
@@ -396,6 +474,7 @@ class TextPager(Widget, can_focus=True):
         self._generation += 1
         self._search_seq += 1
         self.stop_follow()
+        self._deposit_index()
         self._close_reader()
 
     @property

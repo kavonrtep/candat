@@ -249,3 +249,44 @@ async def test_quoted_newlines_stay_on_classic_table(tmp_path):
         # Line-based indexing would mis-split this; the classic parser is exact.
         assert pane.has_class("-csv-table") and not pane.is_bigtable
         assert pane.csv.table.row_count == 2
+
+
+async def test_toggle_reuses_line_index(tmp_path):
+    """Table <-> normal toggle on a big file must not rescan: the LineIndex
+    built by whichever view indexed first is cached and handed over."""
+    path = make_table_file(tmp_path, rows=450_000, name="big.txt")
+    async with open_app([path]) as (app, pilot):
+        pane = app.tabs.active_pane
+        await pilot.pause()
+        assert pane.is_pager
+        await wait_for(pilot, lambda: not pane.pager._indexing)
+        index = pane.pager._index
+        await chord(pilot, "ctrl+c", "ctrl+v")  # pager -> windowed table
+        assert pane.is_bigtable
+        # No background rescan: the pager's finished index was reused as-is.
+        assert not pane.bigtable._indexing
+        assert pane.bigtable._index is index
+        assert pane.bigtable.total_rows == 450_000
+        await chord(pilot, "ctrl+c", "ctrl+v")  # table -> back to the pager
+        assert pane.is_pager
+        assert not pane.pager._indexing
+        assert pane.pager._index is index
+
+
+async def test_index_cache_drops_changed_file(tmp_path):
+    from candat.pager import INDEX_CACHE, LineIndex, _FileReader
+
+    path = tmp_path / "data.txt"
+    path.write_text("a\nb\nc\n")
+    reader = _FileReader(path)
+    index = LineIndex()
+    index.scan(reader)
+    INDEX_CACHE.put(path, reader.fd, index)
+    reader.close()
+    assert INDEX_CACHE.take(path) is index  # unchanged file: reused
+    assert INDEX_CACHE.take(path) is None  # take() removes the entry
+    reader = _FileReader(path)
+    INDEX_CACHE.put(path, reader.fd, index)
+    reader.close()
+    path.write_text("a\nb\nc\nd\n")  # size/mtime changed underneath the cache
+    assert INDEX_CACHE.take(path) is None
