@@ -7,6 +7,17 @@ covered by the compatibility promise.
 
 ## [Unreleased]
 
+## [1.5.2] - 2026-08-15
+
+### Fixed
+- **Search left you stuck at the match.** After isearch (`C-s`/`C-r`) found
+  a string, movement and editing keys were swallowed by the search prompt,
+  so there was no way to start editing at the found spot — and `C-g` threw
+  the cursor back to where the search began. Any key outside the search
+  protocol now exits the search with point at the match and runs in the
+  editor, as emacs does: search, then just move or type. `Enter` still
+  accepts in place and `C-g` still cancels back to the origin.
+
 ## [1.5.1] - 2026-08-05
 
 ### Fixed
