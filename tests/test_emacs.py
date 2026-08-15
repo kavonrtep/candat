@@ -203,6 +203,24 @@ async def test_isearch_cancel_restores_origin():
         assert editor.point == (0, 0)
 
 
+async def test_isearch_other_key_exits_at_match_and_executes():
+    async with editor_with_text("alpha beta\n") as (app, pilot, editor):
+        await pilot.press("ctrl+s")
+        await pilot.pause()
+        await pilot.press("b", "e", "t", "a")
+        assert editor.selection.end == (0, 10)
+        # A non-search key exits the search with point at the match and then
+        # runs in the editor (emacs behavior): C-b moves back one char.
+        await pilot.press("ctrl+b")
+        await pilot.pause()
+        assert len(app.screen_stack) == 1
+        assert editor.point == (0, 9)
+        assert app.last_search == "beta"
+        # Editing now happens at that spot, not at the origin.
+        await pilot.press("X")
+        assert editor.text == "alpha betXa\n"
+
+
 async def test_isearch_backward():
     async with editor_with_text("beta one beta two\n") as (app, pilot, editor):
         await pilot.press("alt+greater_than_sign")

@@ -164,6 +164,13 @@ class ISearchScreen(ModalScreen[None]):
         elif event.is_printable and event.character:
             self._query += event.character
             self._extend_search()
+        else:
+            # Any other key (movement, editing chords, …) exits the search
+            # with point at the match and then executes in the editor, as
+            # emacs does.  dismiss() pops the screen stack synchronously, so
+            # the replayed key resolves against the editor's bindings.
+            self._accept()
+            self._editor.post_message(events.Key(event.key, event.character))
 
     def _accept(self) -> None:
         if self._query:
