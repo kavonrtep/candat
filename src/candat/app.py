@@ -10,6 +10,7 @@ from textual import events, on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal
+from textual.css.query import NoMatches
 from textual.widgets import DirectoryTree, Static, TabbedContent, TextArea
 
 from .buffers import BufferListScreen
@@ -19,6 +20,7 @@ from .commands import CandatCommands
 from .bigtable import BigTable, has_quoted_newline
 from .csvview import CSV_SUFFIXES, MAX_ROWS  # default set; config can extend
 from .dialogs import ConfirmScreen, PromptScreen
+from .docconvert import ConversionError, is_document
 from .editor import (
     HEAD_LINES,
     LARGE_FILE_BYTES,
@@ -30,7 +32,7 @@ from .help import HelpScreen
 from .killring import KillRing
 from .nav import DEFAULT_TREE_WIDTH, MIN_TREE_WIDTH, FileTree, NavPanel, TreeSplitter
 from .pager import TextPager
-from .pane import BufferPane, pane_of
+from .pane import BufferPane, pane_of, unique_labels
 from .window import MAX_GROUPS, EditorGroup, group_of
 from .preview import PREVIEW_MODES
 from .projectsearch import SearchResultsScreen, search_project
@@ -63,6 +65,8 @@ class StatusBar(Static):
         eol = "  CRLF" if editor.newline == "\r\n" else ("  CR" if editor.newline == "\r" else "")
         if editor.binary:
             big = "  [b]binary[/]"
+        elif editor.document_view:
+            big = "  [b]document → markdown[/]"
         elif editor.truncated:
             big = "  [b]large: head only[/]"
         else:
@@ -405,7 +409,8 @@ class CandatApp(App[None]):
         self.watch(editor, "scroll_y", pane.sync_preview_scroll, init=False)
         self.tabs.active = pane.id
         editor.focus()
-        if editor.language == "markdown":
+        self._refresh_tab_labels()
+        if editor.language == "markdown" and not editor.document_view:
             await pane.set_preview_mode("split")
         return pane
 
@@ -443,9 +448,13 @@ class CandatApp(App[None]):
             self.notify(f"{path} is a directory", severity="warning")
             return
         # CSV/TSV files open in the table viewer; big text files in the pager;
-        # neither loads the file into the editor.
+        # neither loads the file into the editor. Word-processor documents
+        # are converted to markdown and shown rendered, read-only.
         is_csv = path.suffix.lower() in self._table_suffixes() and path.exists()
-        kind = classify_file(path)[0] if (path.exists() and not is_csv) else "normal"
+        is_doc = is_document(path) and path.exists()
+        kind = (
+            classify_file(path)[0] if (path.exists() and not is_csv and not is_doc) else "normal"
+        )
         is_large = kind == "large"
         # Already open in any window? Switch to that window and tab.
         for pane in self.query(BufferPane):
@@ -466,6 +475,13 @@ class CandatApp(App[None]):
         ):
             current.leave_welcome_mode()
             editor = current.editor
+            if is_doc:
+                if not await self._show_document(current, path):
+                    editor.load(path)  # unreadable document: the binary view
+                    self._announce_file(editor)
+                    self._refresh_tab_label(editor)
+                    self._refresh_status()
+                return
             if path.exists() and not is_csv and not is_large:
                 editor.load(path)
                 self._announce_file(editor)
@@ -484,6 +500,15 @@ class CandatApp(App[None]):
                 await current.set_preview_mode("split")
             editor.focus()
             return
+        if is_doc:
+            editor = await self._new_buffer(path, load_text=False)
+            pane = pane_of(editor)
+            if pane is not None and not await self._show_document(pane, path):
+                editor.load(path)
+                self._announce_file(editor)
+                self._refresh_tab_label(editor)
+                self._refresh_status()
+            return
         editor = await self._new_buffer(path, load_text=not is_csv and not is_large)
         pane = pane_of(editor)
         if is_csv and pane is not None:
@@ -492,6 +517,21 @@ class CandatApp(App[None]):
             self._enter_pager(pane, path)
         if not path.exists():
             self.notify("(new file)", timeout=2)
+
+    async def _show_document(self, pane: BufferPane, path: Path) -> bool:
+        """Convert a .docx/.odt into the pane's editor and show the rendered
+        markdown (preview-only; `C-c C-v` cycles to the markdown source).
+        Returns False when the file couldn't be converted."""
+        editor = pane.editor
+        try:
+            editor.load_document(path)
+        except ConversionError as error:
+            self.notify(str(error), severity="error", timeout=5)
+            return False
+        self._refresh_tab_label(editor)
+        await pane.set_preview_mode("only")
+        self._refresh_status()
+        return True
 
     def _wants_bigtable(self, path: Path) -> bool:
         """True when a file needs the windowed (unlimited-row) table: too big
@@ -537,12 +577,26 @@ class CandatApp(App[None]):
         self._refresh_status()
 
     def _refresh_tab_label(self, editor: EditorBuffer) -> None:
-        pane = pane_of(editor)
-        group = group_of(editor)
-        if pane is None or pane.id is None or group is None:
-            return
-        label = editor.display_name + ("*" if editor.modified else "")
-        group.get_tab(pane.id).label = label
+        """Relabel every tab: a label depends on the *other* open files too
+        (same-named files get their directory prepended), so one buffer's
+        change can rename its namesakes in other tabs and windows."""
+        self._refresh_tab_labels()
+
+    def _refresh_tab_labels(self) -> None:
+        panes = list(self.query(BufferPane))
+        labels = unique_labels([pane.editor.path for pane in panes])
+        for pane, label in zip(panes, labels):
+            group = group_of(pane)
+            if pane.id is None or group is None:
+                continue
+            if pane.editor.modified:
+                label += "*"
+            try:
+                tab = group.get_tab(pane.id)
+            except NoMatches:  # pane not (yet / any more) in a tab bar
+                continue
+            if tab.label_text != label:
+                tab.label = label
 
     def _refresh_status(self) -> None:
         status = self.query_one(StatusBar)
@@ -1065,6 +1119,14 @@ class CandatApp(App[None]):
         )
 
     def _save(self, editor: EditorBuffer, path: Path | None) -> None:
+        if editor.document_view and (path is None or path == editor.path):
+            self.notify(
+                "This is a converted view of a document — C-x C-w exports the "
+                "markdown to another file; the document itself is never written.",
+                severity="warning",
+                timeout=5,
+            )
+            return
         if editor.truncated or editor.binary:
             self.notify(
                 "This is a large/binary view — saving is disabled so it can't "
@@ -1112,6 +1174,7 @@ class CandatApp(App[None]):
         if not list(group.query(BufferPane)):
             self._active_group = group
             await self._new_buffer()
+        self._refresh_tab_labels()  # a namesake may drop its directory again
         self._refresh_status()
 
     def action_switch_buffer(self) -> None:

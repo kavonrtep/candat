@@ -122,6 +122,21 @@ only through rows that pass the filter). Files are watched: a growing file
 extends the table in place. A buffer with unsaved edits is parsed from the
 buffer text, so the table always matches what you see.
 
+## Documents (.docx / .odt)
+
+Word-processor documents open as rendered markdown — read-only, converted
+by pandoc when it is on your `PATH`, else by a built-in converter (headings,
+emphasis, lists, tables, links; images become placeholders). The document
+is never written back; it is re-converted when it changes on disk.
+
+| Key | Action |
+| --- | --- |
+| `C-c C-v` | cycle rendered view → split → markdown source |
+| `C-x C-w` | export the markdown to a file (the buffer then edits that file) |
+
+Tabs show file names; same-named files get their directory prepended
+(`a/config.toml`, `b/config.toml`). The status bar shows the full path.
+
 ## Windows (splits)
 
 | Key | Action |

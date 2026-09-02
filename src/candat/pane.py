@@ -183,6 +183,34 @@ class BufferPane(TabPane):
         self.bigtable.unload()
 
 
+def unique_labels(paths: list[Path | None]) -> list[str]:
+    """Tab labels for open buffers: the file name, plus as many trailing
+    directories as it takes to tell apart files that share a name (like
+    emacs' uniquify): `a/config.toml` and `b/config.toml`. None (untitled)
+    stays `*untitled*`."""
+    labels = [p.name if p is not None else "*untitled*" for p in paths]
+    parts: dict[int, tuple[str, ...]] = {}
+    by_name: dict[str, list[int]] = {}
+    for index, path in enumerate(paths):
+        if path is not None:
+            parts[index] = path.parts[1:] if path.is_absolute() else path.parts
+            by_name.setdefault(path.name, []).append(index)
+    for indices in by_name.values():
+        if len(indices) < 2:
+            continue
+        depth = 1
+        while True:
+            candidates = {i: "/".join(parts[i][-(depth + 1) :]) for i in indices}
+            distinct = len(set(candidates.values())) == len(indices)
+            exhausted = all(depth + 1 >= len(parts[i]) for i in indices)
+            if distinct or exhausted:
+                break
+            depth += 1
+        for i, label in candidates.items():
+            labels[i] = label
+    return labels
+
+
 def pane_of(widget: Widget | None) -> BufferPane | None:
     """The BufferPane containing a widget (e.g. an editor), or None."""
     if widget is None:

@@ -20,6 +20,7 @@ from textual.widgets import TextArea
 from textual.widgets.text_area import Selection
 
 from . import clipboard, config, markdown
+from .docconvert import ConversionError, convert_to_markdown
 
 LANGUAGES: dict[str, str] = {
     ".py": "python",
@@ -338,6 +339,9 @@ class EditorBuffer(TextArea):
         self.large = False
         self.truncated = False  # large: only the head was loaded
         self.binary = False
+        # A .docx/.odt shown as converted markdown: read-only, never written
+        # back to the document, re-converted when the file changes on disk.
+        self.document_view = False
         self.file_size = 0
         # How to write the buffer back exactly as it came in.
         self.encoding = "utf-8"
@@ -430,6 +434,10 @@ class EditorBuffer(TextArea):
         view._saved_text = self._saved_text
         view.modified = self.modified
         view.disk_mtime = self.disk_mtime
+        if self.document_view:
+            view.document_view = True
+            view.read_only = True
+            view.language = self.language
         for peer in peers:
             peer.links.append(view)
         view.links.extend(peers)
@@ -495,12 +503,45 @@ class EditorBuffer(TextArea):
         else:
             self._apply_language()
 
+    def load_document(self, path: Path) -> None:
+        """Show a .docx/.odt as read-only markdown (see docconvert). Raises
+        ConversionError; the buffer is left untouched then."""
+        text = convert_to_markdown(path)
+        self.path = path
+        self.encoding = "utf-8"
+        self.newline = "\n"
+        try:
+            size = path.stat().st_size
+            self.disk_mtime = path.stat().st_mtime
+        except OSError:
+            size = 0
+            self.disk_mtime = None
+        self._set_file_flags("normal", size)
+        self.document_view = True
+        self.read_only = True
+        self._syncing = True
+        try:
+            self.text = text
+        finally:
+            self._syncing = False
+        self.modified = False
+        self._saved_text = self.text
+        if "markdown" in self.available_languages:
+            self.language = "markdown"
+
     def reload_from_disk(self) -> None:
         """Re-read the file into this view and every linked view, each keeping
         its own cursor and scroll position (clamped)."""
         if self.path is None or not self.path.exists():
             return
-        text, kind, size, encoding, newline = read_file_head(self.path)
+        if self.document_view:
+            try:
+                text = convert_to_markdown(self.path)
+            except ConversionError:
+                return  # keep showing the last good conversion
+            kind, size, encoding, newline = "normal", self.file_size, "utf-8", "\n"
+        else:
+            text, kind, size, encoding, newline = read_file_head(self.path)
         try:
             mtime = self.path.stat().st_mtime
         except OSError:
@@ -546,6 +587,13 @@ class EditorBuffer(TextArea):
             # This view holds only the head (or a placeholder) — writing it
             # would truncate/corrupt the file on disk.
             raise ValueError("refusing to save a large or binary view")
+        if self.document_view:
+            # The markdown is a rendering of the document, not the document:
+            # it may only be written somewhere else (C-x C-w), as an export.
+            if path is None or path == self.path:
+                raise ValueError("refusing to overwrite a document with its markdown")
+            self.document_view = False
+            self.read_only = False
         if path is not None:
             self.path = path
             self._apply_language()

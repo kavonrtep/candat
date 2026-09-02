@@ -25,6 +25,9 @@ table viewer, a large-file pager, and a real shell inside.
   table cell navigation, checkbox and emphasis helpers.
 - **Table viewer** — `.csv`/`.tsv` (or any delimited buffer) as a table with
   no row limit, background search and regex row filter.
+- **Documents** — `.docx` and `.odt` open as rendered markdown (read-only;
+  via pandoc when installed, a built-in converter otherwise), and the
+  markdown can be exported with `C-x C-w`.
 - **Large-file pager** — `less`-style streaming view for multi-GB files,
   with follow mode and background search; binary files are guarded.
 - **Terminal inside** — a real PTY panel with scrollback, and `C-c C-c` to
@@ -150,6 +153,18 @@ with smart case, the same dialect as everywhere else — with the matched text
 highlighted in the cells (`Esc` clears), `C-s`/`n` and `C-r`/`N` step to the
 next / previous match, `&` filters rows by regex, `g`/`G` jump to
 top/bottom. `C-c C-v` switches back to the raw text. The table is read-only.
+
+Word-processor documents — `.docx` and `.odt` — open as rendered markdown:
+headings, emphasis, lists, tables and links come through; images become
+placeholders. The conversion uses [pandoc](https://pandoc.org) when it is
+on your `PATH` and a built-in stdlib converter otherwise. The view is
+read-only and the document itself is never written; `C-c C-v` cycles to
+the markdown source, and `C-x C-w` exports that markdown to a file. The
+document is re-converted when it changes on disk.
+
+Tabs show the file name; when two open files share a name (`a/config.toml`
+and `b/config.toml`), each tab gets as much of its directory as it takes to
+tell them apart, and the status bar always shows the active file's full path.
 
 Markdown buffers edit structurally, not just visually. `Enter` continues
 lists — bullets, numbered items (the block renumbers itself), `- [ ]` task

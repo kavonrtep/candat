@@ -7,6 +7,20 @@ covered by the compatibility promise.
 
 ## [Unreleased]
 
+### Added
+- **Word-processor documents open as rendered markdown.** `.docx` and
+  `.odt` files are converted to markdown (with pandoc when it is on `PATH`,
+  otherwise a built-in stdlib converter that covers headings, bold/italic/
+  strike, nested bullet and numbered lists, tables, links and line breaks)
+  and shown in the preview. The view is read-only and the document is
+  never written back: `C-c C-v` cycles to the markdown source and `C-x C-w`
+  exports it to a file. A document that changes on disk is re-converted.
+- **Same-named files get distinguishable tabs.** Opening `a/config.toml`
+  next to `b/config.toml` used to give two tabs both labelled
+  `config.toml`. Each tab now carries as much of its directory as it takes
+  to tell them apart (emacs' uniquify style), and collapses back to the
+  bare name when the namesake is closed.
+
 ## [1.5.2] - 2026-08-15
 
 ### Fixed
