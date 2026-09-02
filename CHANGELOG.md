@@ -7,6 +7,8 @@ covered by the compatibility promise.
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-09-02
+
 ### Changed
 - **Long operations show what is going on instead of freezing.** The
   status bar gets a spinner with a message while a document is being
