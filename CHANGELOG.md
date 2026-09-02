@@ -7,6 +7,8 @@ covered by the compatibility promise.
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-09-02
+
 ### Added
 - **Word-processor documents open as rendered markdown.** `.docx` and
   `.odt` files are converted to markdown (with pandoc when it is on `PATH`,
