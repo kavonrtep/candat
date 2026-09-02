@@ -194,7 +194,10 @@ only `C-x` is reserved, so `C-x t` and `C-x o` always work.
 Open files are watched: a buffer without local edits reloads when its
 file changes on disk; with local edits you are asked first (pager and
 CSV views track the file in place). The status bar shows `--` clean,
-`**` modified, `%%` read-only.
+`**` modified, `%%` read-only, and a spinner with a message while
+something long is running (a document conversion, a big preview render,
+a project search, a large file loading). Files over 1 MB open without
+syntax highlighting, which keeps them quick to open.
 
 ## Configuration
 

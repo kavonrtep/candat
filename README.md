@@ -29,7 +29,9 @@ table viewer, a large-file pager, and a real shell inside.
   via pandoc when installed, a built-in converter otherwise), and the
   markdown can be exported with `C-x C-w`.
 - **Large-file pager** — `less`-style streaming view for multi-GB files,
-  with follow mode and background search; binary files are guarded.
+  with follow mode and background search; binary files are guarded, and
+  anything slow (conversion, search, a big render or load) shows a spinner
+  in the status bar rather than freezing.
 - **Terminal inside** — a real PTY panel with scrollback, and `C-c C-c` to
   send the region or line to it as a REPL.
 - **System clipboard** — copies mirror over OSC 52 (works through SSH and

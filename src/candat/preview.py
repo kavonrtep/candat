@@ -20,6 +20,7 @@ import time
 from rich.console import Console
 from rich.markdown import Markdown as RichMarkdown
 from textual.geometry import Size
+from textual.message import Message
 from textual.scroll_view import ScrollView
 from textual.strip import Strip
 
@@ -78,6 +79,15 @@ def markdown_chunks(text: str) -> list[str]:
 class MarkdownPreview(ScrollView, can_focus=True):
     """A scrollable rendered-markdown view of the buffer's text."""
 
+    class Busy(Message):
+        """A render started (busy=True) or finished (busy=False); the app
+        shows a status-bar indicator for renders that take a while."""
+
+        def __init__(self, preview: "MarkdownPreview", busy: bool) -> None:
+            super().__init__()
+            self.preview = preview
+            self.busy = busy
+
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self._strips: list[Strip] = []
@@ -98,6 +108,7 @@ class MarkdownPreview(ScrollView, can_focus=True):
         if self._text is None:
             return
         self._busy = True
+        self.post_message(self.Busy(self, True))
         generation = self._generation
         text = self._text
         width = self.scrollable_content_region.width or FALLBACK_WIDTH
@@ -129,6 +140,7 @@ class MarkdownPreview(ScrollView, can_focus=True):
         if generation != self._generation:
             self._start_render()  # newer text arrived while rendering
             return
+        self.post_message(self.Busy(self, False))
         self._strips = strips
         self.virtual_size = Size(width, len(strips))
         self.refresh()

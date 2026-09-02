@@ -20,9 +20,10 @@ from .commands import CandatCommands
 from .bigtable import BigTable, has_quoted_newline
 from .csvview import CSV_SUFFIXES, MAX_ROWS  # default set; config can extend
 from .dialogs import ConfirmScreen, PromptScreen
-from .docconvert import ConversionError, is_document
+from .docconvert import ConversionError, convert_to_markdown, is_document
 from .editor import (
     HEAD_LINES,
+    HIGHLIGHT_MAX_BYTES,
     LARGE_FILE_BYTES,
     EditorBuffer,
     classify_file,
@@ -34,15 +35,77 @@ from .nav import DEFAULT_TREE_WIDTH, MIN_TREE_WIDTH, FileTree, NavPanel, TreeSpl
 from .pager import TextPager
 from .pane import BufferPane, pane_of, unique_labels
 from .window import MAX_GROUPS, EditorGroup, group_of
-from .preview import PREVIEW_MODES
+from .preview import PREVIEW_MODES, MarkdownPreview
 from .projectsearch import SearchResultsScreen, search_project
 from .replace import QueryReplaceScreen
 from .terminal import TerminalPane
 from .theme import CANDAT_LIGHT
 
 
+SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+# Operations shorter than this never show an indicator, so the common
+# quick case (a small preview render, a short search) doesn't flicker.
+BUSY_DELAY = 0.3
+
+
 class StatusBar(Static):
-    """One-line status: buffer name, modified flag, cursor position, language."""
+    """One-line status: buffer name, modified flag, cursor position, language
+    — plus a spinner while something long-running is going on, so a
+    conversion, a big render or a project search never looks like a freeze."""
+
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._base = ""
+        self._busy: dict[str, str] = {}  # key -> message, in start order
+        self._pending: dict[str, object] = {}  # key -> delay timer
+        self._spinner_timer = None
+        self._frame = 0
+
+    def update(self, content="", *, layout: bool = True) -> None:  # type: ignore[override]
+        self._base = content
+        super().update(self._status_text(), layout=layout)
+
+    def _status_text(self) -> str:
+        if not self._busy:
+            return str(self._base)
+        frame = SPINNER[self._frame % len(SPINNER)]
+        what = ", ".join(self._busy.values())
+        return f"{self._base}   [b $warning]{frame} {what}[/]"
+
+    def begin(self, key: str, message: str, delay: float = BUSY_DELAY) -> None:
+        """Show `message` with a spinner until end(key) — after `delay`
+        seconds, so an operation that finishes quickly shows nothing."""
+        self.end(key)
+        if delay <= 0:
+            self._start(key, message)
+        else:
+            self._pending[key] = self.set_timer(delay, lambda: self._start(key, message))
+
+    def _start(self, key: str, message: str) -> None:
+        self._pending.pop(key, None)
+        self._busy[key] = message
+        if self._spinner_timer is None:
+            self._spinner_timer = self.set_interval(0.1, self._tick)
+        super().update(self._status_text())
+
+    def _tick(self) -> None:
+        self._frame += 1
+        super().update(self._status_text())
+
+    def end(self, key: str) -> None:
+        if (timer := self._pending.pop(key, None)) is not None:
+            timer.stop()  # type: ignore[attr-defined]
+        if self._busy.pop(key, None) is None:
+            return
+        if not self._busy and self._spinner_timer is not None:
+            self._spinner_timer.stop()
+            self._spinner_timer = None
+        super().update(self._status_text())
+
+    @property
+    def busy_with(self) -> list[str]:
+        """Messages currently shown (for tests)."""
+        return list(self._busy.values())
 
     def show(self, editor: EditorBuffer | None) -> None:
         if editor is None:
@@ -419,13 +482,40 @@ class CandatApp(App[None]):
     ) -> EditorBuffer:
         editor = EditorBuffer(path=None)
         if path is not None and path.exists() and load_text:
-            editor.load(path)
-            self._announce_file(editor)
+            await self._load_text(editor, path)
         else:
             editor.path = path
             editor._apply_language()
         await self._add_pane(editor)
         return editor
+
+    async def _load_text(
+        self, editor: EditorBuffer, path: Path, force_full: bool = False
+    ) -> None:
+        """editor.load(), announcing it first for a big file: building the
+        document (and the first frame) is UI-thread work that can take
+        seconds, so the status bar says "Loading…" before it starts rather
+        than the app just stalling."""
+        try:
+            size = path.stat().st_size
+        except OSError:
+            size = 0
+        if size > HIGHLIGHT_MAX_BYTES:
+            status = self.query_one(StatusBar)
+            status.begin("load", f"Loading {path.name} ({human_size(size)})…", delay=0)
+            await asyncio.sleep(0.05)  # let that frame paint
+            try:
+                editor.load(path, force_full=force_full)
+            finally:
+                status.end("load")
+            if not editor.binary and not editor.large and editor.language is None:
+                self.notify(
+                    f"Large file ({human_size(size)}) — syntax highlighting off",
+                    timeout=4,
+                )
+        else:
+            editor.load(path, force_full=force_full)
+        self._announce_file(editor)
 
     def _announce_file(self, editor: EditorBuffer) -> None:
         if editor.binary:
@@ -483,8 +573,7 @@ class CandatApp(App[None]):
                     self._refresh_status()
                 return
             if path.exists() and not is_csv and not is_large:
-                editor.load(path)
-                self._announce_file(editor)
+                await self._load_text(editor, path)
             else:
                 editor.path = path
                 editor._apply_language()
@@ -523,11 +612,20 @@ class CandatApp(App[None]):
         markdown (preview-only; `C-c C-v` cycles to the markdown source).
         Returns False when the file couldn't be converted."""
         editor = pane.editor
+        editor.path = path  # so a second open of the file finds this tab
+        self._refresh_tab_label(editor)
+        status = self.query_one(StatusBar)
+        status.begin(f"convert-{pane.id}", f"Converting {path.name}…", delay=0)
         try:
-            editor.load_document(path)
+            text = await asyncio.to_thread(convert_to_markdown, path)
         except ConversionError as error:
             self.notify(str(error), severity="error", timeout=5)
             return False
+        finally:
+            status.end(f"convert-{pane.id}")
+        if not pane.is_mounted:
+            return True  # closed while converting; nothing to show
+        editor.set_document(path, text)
         self._refresh_tab_label(editor)
         await pane.set_preview_mode("only")
         self._refresh_status()
@@ -621,6 +719,15 @@ class CandatApp(App[None]):
         status.show(editor)
         self.sub_title = str(editor.path) if editor and editor.path else ""
 
+    @on(MarkdownPreview.Busy)
+    def _preview_busy(self, event: MarkdownPreview.Busy) -> None:
+        status = self.query_one(StatusBar)
+        key = f"preview-{id(event.preview)}"
+        if event.busy:
+            status.begin(key, "Rendering preview…")
+        else:
+            status.end(key)
+
     @on(TextPager.Moved)
     def _pager_moved(self, event: TextPager.Moved) -> None:
         self._refresh_status()
@@ -680,22 +787,22 @@ class CandatApp(App[None]):
                 self._enter_pager(pane, editor.path)
                 return
 
-            def to_text() -> None:
+            async def to_text() -> None:
                 if (
                     editor.path is not None
                     and editor.disk_mtime is None
                     and editor.path.exists()
                 ):
-                    editor.load(editor.path)
+                    await self._load_text(editor, editor.path)
                     self._refresh_tab_label(editor)
                 pane.leave_csv_mode()
                 editor.focus()
                 self._refresh_status()
 
             if editor.disk_mtime is None and size > 5_000_000:
-                def maybe(confirmed: bool | None) -> None:
+                async def maybe(confirmed: bool | None) -> None:
                     if confirmed:
-                        to_text()
+                        await to_text()
 
                 self.push_screen(
                     ConfirmScreen(
@@ -705,7 +812,7 @@ class CandatApp(App[None]):
                     maybe,
                 )
             else:
-                to_text()
+                self.run_worker(to_text(), exclusive=False)
             return
         # Entering table view.
         if editor.binary:
@@ -966,7 +1073,42 @@ class CandatApp(App[None]):
                 return  # one question at a time
 
     def _reload(self, editor: EditorBuffer) -> None:
+        if editor.document_view:
+            self.run_worker(self._reload_document(editor), exclusive=False)
+            return
         editor.reload_from_disk()
+        self._reloaded(editor)
+
+    async def _reload_document(self, editor: EditorBuffer) -> None:
+        """Re-convert a changed .docx/.odt in a worker thread, then install
+        the markdown in every view of it."""
+        path = editor.path
+        if path is None:
+            return
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            return
+        # Claim this change now so the 1 s disk poll doesn't start a second
+        # conversion while this one runs.
+        for view in [editor, *editor.links]:
+            view.disk_mtime = mtime
+        status = self.query_one(StatusBar)
+        status.begin(f"convert-{id(editor)}", f"Converting {path.name}…", delay=0)
+        try:
+            text = await asyncio.to_thread(convert_to_markdown, path)
+        except ConversionError as error:
+            self.notify(f"{path.name} changed but can't be converted: {error}", severity="warning")
+            return
+        finally:
+            status.end(f"convert-{id(editor)}")
+        if not editor.is_mounted:
+            return
+        for view in [editor, *editor.links]:
+            view._reload_text(text, mtime, "normal", view.file_size, "utf-8", "\n")
+        self._reloaded(editor)
+
+    def _reloaded(self, editor: EditorBuffer) -> None:
         self._refresh_tab_label(editor)
         self._refresh_status()
         if editor.language == "markdown":
@@ -1059,11 +1201,11 @@ class CandatApp(App[None]):
             self.notify(f"Cannot read {path.name}: {error}", severity="error")
             return
 
-        def load(confirmed: bool | None) -> None:
+        async def load(confirmed: bool | None) -> None:
             if not confirmed:
                 return
             pane.leave_pager_mode()
-            pane.editor.load(path, force_full=True)
+            await self._load_text(pane.editor, path, force_full=True)
             self._refresh_tab_label(pane.editor)
             self._refresh_status()
             pane.editor.focus()
@@ -1429,7 +1571,12 @@ class CandatApp(App[None]):
         async def got_pattern(pattern: str | None) -> None:
             if not pattern:
                 return
-            results = await asyncio.to_thread(search_project, self._root, pattern)
+            status = self.query_one(StatusBar)
+            status.begin("search", f"Searching project for {pattern!r}…")
+            try:
+                results = await asyncio.to_thread(search_project, self._root, pattern)
+            finally:
+                status.end("search")
             if not results:
                 self.notify(f"No matches for {pattern!r}", timeout=2)
                 return

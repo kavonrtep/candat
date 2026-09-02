@@ -7,6 +7,18 @@ covered by the compatibility promise.
 
 ## [Unreleased]
 
+### Changed
+- **Long operations show what is going on instead of freezing.** The
+  status bar gets a spinner with a message while a document is being
+  converted, a big markdown preview is rendering, a project search is
+  running, or a large file is being loaded (quick operations show
+  nothing, so there is no flicker). Document conversion (pandoc) now runs
+  in a worker thread, so the editor stays responsive while it works —
+  also when a document is re-converted after changing on disk.
+- **Files over 1 MB open without syntax highlighting.** Tree-sitter parses
+  about 1 MB/s on the UI thread, so a 6 MB source file took 12 s to open;
+  it now opens in about 2 s, with a notice that highlighting is off.
+
 ## [1.6.0] - 2026-09-02
 
 ### Added

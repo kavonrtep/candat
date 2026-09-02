@@ -298,3 +298,61 @@ async def test_same_named_files_get_distinct_tabs(tmp_path):
         await pilot.pause()
         await chord(pilot, "ctrl+x", "k")
         assert await wait_for(pilot, lambda: labels() == ["notes.txt"])
+
+
+# -- long operations show a busy indicator -------------------------------------
+
+
+async def test_conversion_runs_off_thread_with_indicator(tmp_path, monkeypatch):
+    """A slow conversion keeps the UI responsive and shows 'Converting…'."""
+    import threading
+    import time
+
+    from candat import app as app_module
+
+    path = write_docx(tmp_path / "slow.docx")
+    release = threading.Event()
+
+    def slow_convert(p):
+        release.wait(5)
+        return "# Converted\n"
+
+    monkeypatch.setattr(app_module, "convert_to_markdown", slow_convert)
+    async with open_app() as (app, pilot):
+        status = app.query_one(StatusBar)
+        app.run_worker(app._open_path(path), exclusive=False)
+        assert await wait_for(pilot, lambda: "Converting slow.docx…" in status.busy_with)
+        assert "⠋" in str(status.render()) or any(c in str(status.render()) for c in "⠙⠹⠸⠼⠴⠦⠧⠇⠏")
+        # The UI is alive meanwhile: the tab exists and is labelled already.
+        assert [t.label_text for t in app.tabs.query("Tab")] == ["slow.docx"]
+        release.set()
+        assert await wait_for(pilot, lambda: not status.busy_with)
+        editor = app.active_editor
+        assert editor.document_view and editor.text == "# Converted\n"
+        assert "⠋" not in str(status.render())
+
+
+async def test_preview_render_indicator_clears(tmp_path):
+    path = tmp_path / "n.md"
+    path.write_text("# Hi\n\n" + "para\n\n" * 200)
+    async with open_app([path]) as (app, pilot):
+        status = app.query_one(StatusBar)
+        pane = app.active_pane
+        assert await wait_for(pilot, lambda: "Hi" in pane.preview.plain_text())
+        # Whether or not the indicator ever showed (renders are quick), it
+        # must not be left behind once the render is done.
+        assert await wait_for(pilot, lambda: not status.busy_with)
+
+
+async def test_big_text_file_loads_without_highlighting(tmp_path):
+    from candat.editor import HIGHLIGHT_MAX_BYTES
+
+    path = tmp_path / "big.py"
+    line = "x = 1  # " + "y" * 60 + "\n"
+    path.write_text(line * (HIGHLIGHT_MAX_BYTES // len(line) + 10))
+    async with open_app([path]) as (app, pilot):
+        editor = app.active_editor
+        assert editor.path == path
+        assert editor.language is None  # too big to colour
+        assert not editor.read_only  # still a normal, editable buffer
+        assert not app.query_one(StatusBar).busy_with

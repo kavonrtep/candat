@@ -115,6 +115,10 @@ def extra_language(name: str):
 # Files above this size open in a read-only, truncated "large file" view so a
 # huge log never freezes the editor or exhausts memory.
 LARGE_FILE_BYTES = 10 * 1024 * 1024
+# Above this, a buffer loads without syntax highlighting: tree-sitter parses
+# ~1 MB/s of source on the UI thread, so a 6 MB file would freeze the app
+# for ten seconds just to colour it (the plain load is ~1 s).
+HIGHLIGHT_MAX_BYTES = 1_000_000
 LARGE_HEAD_BYTES = 4 * 1024 * 1024
 HEAD_LINES = 10_000
 _BINARY_SNIFF = 8192
@@ -498,7 +502,7 @@ class EditorBuffer(TextArea):
             self.disk_mtime = path.stat().st_mtime
         except OSError:
             self.disk_mtime = None
-        if self.binary or self.large or (force_full and size > LARGE_FILE_BYTES):
+        if self.binary or self.large or size > HIGHLIGHT_MAX_BYTES:
             self.language = None  # skip highlighting a huge/binary buffer
         else:
             self._apply_language()
@@ -506,7 +510,11 @@ class EditorBuffer(TextArea):
     def load_document(self, path: Path) -> None:
         """Show a .docx/.odt as read-only markdown (see docconvert). Raises
         ConversionError; the buffer is left untouched then."""
-        text = convert_to_markdown(path)
+        self.set_document(path, convert_to_markdown(path))
+
+    def set_document(self, path: Path, text: str) -> None:
+        """Install already-converted markdown for `path` as a document view
+        (the app converts in a worker thread, then calls this)."""
         self.path = path
         self.encoding = "utf-8"
         self.newline = "\n"
