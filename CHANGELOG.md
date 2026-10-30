@@ -7,6 +7,8 @@ covered by the compatibility promise.
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-10-30
+
 ### Added
 - **Readable raw markdown.** Fenced code blocks sit on a tinted background
   and are syntax-highlighted in the language named by the fence
