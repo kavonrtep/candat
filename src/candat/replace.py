@@ -94,22 +94,40 @@ class QueryReplaceScreen(ModalScreen[None]):
             start, _ = self._match
             self._find_next(document.get_index_from_location(start) + 1)
         elif key == "exclamation_mark":
-            while self._match is not None:
-                next_index = self._replace_current()
-                self._match = None
-                found = self._haystack().find(
-                    self._find.lower() if self._fold else self._find, next_index
-                )
-                if found == -1:
-                    break
-                document = self._editor.document
-                self._match = (
-                    document.get_location_from_index(found),
-                    document.get_location_from_index(found + len(self._find)),
-                )
+            self._replace_rest()
             self._finish()
         elif key in ("q", "enter", "escape", "ctrl+g"):
             self._finish()
+
+    def _replace_rest(self) -> None:
+        """`!`: replace the current match and every later one in a single
+        edit — one pass over one text snapshot and one undo step, instead of
+        an edit (and a whole-document rescan) per match."""
+        assert self._match is not None
+        document = self._editor.document
+        text = self._editor.text
+        haystack = text.lower() if self._fold else text
+        needle = self._find.lower() if self._fold else self._find
+        first = document.get_index_from_location(self._match[0])
+        pieces: list[str] = []
+        pos = first
+        found = first
+        while found != -1:
+            pieces.append(text[pos:found])
+            pieces.append(self._replacement)
+            pos = found + len(needle)
+            self._count += 1
+            found = haystack.find(needle, pos)
+        start = self._match[0]
+        end = document.get_location_from_index(pos)
+        self._editor.replace("".join(pieces), start, end)
+        self._match = None
+        # Point ends after the last replacement, as with y-by-y replacing.
+        self._editor.move_cursor(
+            document.get_location_from_index(
+                first + sum(len(piece) for piece in pieces)
+            )
+        )
 
     def _finish(self) -> None:
         cur = self._editor.point

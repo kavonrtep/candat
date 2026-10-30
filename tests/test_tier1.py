@@ -160,3 +160,24 @@ async def test_project_search_flow_jumps_to_match(tmp_path: Path, monkeypatch):
         editor = app.active_editor
         assert editor.path is not None and editor.path.name == "beta.py"
         assert editor.point[0] == 1  # line 2, zero-indexed
+
+
+async def test_query_replace_bang_is_one_fast_undoable_edit():
+    import time
+
+    text = "keep Cat here\n" + "cat x " * 5000 + "\nend CAT\n"
+    async with editor_with_text(text) as (app, pilot, editor):
+        await pilot.press("escape", "percent_sign")
+        await pilot.pause()
+        await prompt_submit(app, pilot, "cat")  # lowercase: smart case folds
+        await prompt_submit(app, pilot, "doggo")
+        await pilot.press("n")  # skip "Cat" on the first line
+        started = time.monotonic()
+        await pilot.press("exclamation_mark")
+        await pilot.pause()
+        assert time.monotonic() - started < 2.0
+        expected = "keep Cat here\n" + "doggo x " * 5000 + "\nend doggo\n"
+        assert editor.text == expected
+        assert editor.point == (2, len("end doggo"))
+        editor.undo()
+        assert editor.text == text  # a single undo step restores everything

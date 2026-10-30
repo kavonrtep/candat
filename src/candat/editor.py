@@ -362,6 +362,7 @@ class EditorBuffer(TextArea):
         # Incremental-search highlight: every occurrence of this query in the
         # visible lines is styled (the current match still rides the selection).
         self._search_highlight = ""
+        self.revision = 0  # bumped on every change
         # Rows of fenced code blocks (markdown only), drawn on a tint.
         self._code_rows: frozenset[int] = frozenset()
         self.register_theme(_EDITOR_THEME)
@@ -700,6 +701,7 @@ class EditorBuffer(TextArea):
         # Runs before the message bubbles to the app, so the app sees the
         # up-to-date modified state. A buffer whose text matches what is on
         # disk is not modified, even after a programmatic load().
+        self.revision += 1  # lets recovery skip buffers it already saved
         self.modified = self.text != self._saved_text
 
     async def _on_key(self, event: events.Key) -> None:

@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from candat import recovery
-from helpers import chord, open_app
+from helpers import chord, open_app, wait_for
 
 pytestmark = pytest.mark.asyncio
 
@@ -40,12 +40,13 @@ async def test_autosave_writes_dirty_and_clears_when_clean(tmp_path):
         editor = app.active_editor
         editor.text = "x = 2\n"
         editor.modified = True
-        app._autosave_recovery()
-        assert recovery.pending()  # dirty buffer snapshotted
+        app._autosave_recovery()  # writes on a worker thread
+        assert await wait_for(pilot, lambda: bool(recovery.pending()))
         # once saved (clean), the next autosave tick clears the snapshots
+        assert await wait_for(pilot, lambda: not app._recovery_busy)
         editor.modified = False
         app._autosave_recovery()
-        assert recovery.pending() == []
+        assert await wait_for(pilot, lambda: recovery.pending() == [])
 
 
 async def test_clean_quit_clears_recovery(tmp_path):
@@ -55,7 +56,7 @@ async def test_clean_quit_clears_recovery(tmp_path):
         app.active_editor.text = "a changed\n"
         app.active_editor.modified = True
         app._autosave_recovery()
-        assert recovery.pending()
+        assert await wait_for(pilot, lambda: bool(recovery.pending()))
         app.exit()
         await pilot.pause()
     assert recovery.pending() == []  # a clean quit leaves nothing to recover
@@ -69,3 +70,39 @@ async def test_startup_announces_leftover_recovery(tmp_path):
         # _announce_recovery ran in on_mount; assert the file is still there
         # (never auto-overwritten) and pending() still sees it.
         assert recovery.pending()
+
+
+async def test_autosave_skips_unchanged_and_never_blocks(tmp_path, monkeypatch):
+    import threading
+    import time
+
+    f = tmp_path / "edit.py"
+    f.write_text("a\n")
+    writes: list[int] = []
+    release = threading.Event()
+    real = recovery.snapshot
+
+    def slow_snapshot(buffers):
+        release.wait(5)  # a hung network home directory
+        writes.append(len(buffers))
+        return real(buffers)
+
+    monkeypatch.setattr(recovery, "snapshot", slow_snapshot)
+    async with open_app([f]) as (app, pilot):
+        editor = app.active_editor
+        editor.insert("b")
+        await pilot.pause()
+        assert editor.modified
+        started = time.monotonic()
+        app._autosave_recovery()
+        app._autosave_recovery()  # previous write still in flight: skipped
+        assert time.monotonic() - started < 0.5
+        release.set()
+        assert await wait_for(pilot, lambda: not app._recovery_busy)
+        app._autosave_recovery()  # nothing changed since: skipped
+        await pilot.pause()
+        assert writes == [1]
+        editor.insert("c")
+        await pilot.pause()
+        app._autosave_recovery()
+        assert await wait_for(pilot, lambda: writes == [1, 1])

@@ -129,3 +129,44 @@ async def test_quit_kills_shell():
     # After app exit the shell must be gone (unmount kills it).
     with pytest.raises(ProcessLookupError):
         os.kill(pid, 0)
+
+
+async def test_big_send_to_a_busy_program_never_blocks_the_ui():
+    """A REPL that stops reading stdin must not freeze candat: input queues
+    on a writer thread, shows in the title, and C-c discards it."""
+    import time
+
+    app = CandatApp()
+    async with app.run_test() as pilot:
+        await chord(pilot, "ctrl+x", "t")
+        terminal = app.query_one(TerminalPane)
+        assert await wait_for(pilot, lambda: terminal._seen_output)
+        terminal.send_text("sleep 100\n")
+        # Wait until sleep (not bash) owns the terminal: it never reads stdin.
+        assert await wait_for(
+            pilot, lambda: os.tcgetpgrp(terminal._fd) != terminal._pid
+        )
+        blob = "# filler line that bash will ignore as a comment\n" * 40_000
+        started = time.monotonic()
+        terminal.send_text(blob)  # ~2 MB: far beyond the pty buffer
+        await pilot.pause()
+        assert time.monotonic() - started < 1.0
+        assert await wait_for(pilot, lambda: "queued" in (terminal.border_title or ""))
+        assert terminal.queued_bytes > 1_000_000
+
+        await pilot.press("ctrl+c")  # drops the queue and interrupts sleep
+        await pilot.pause()
+        assert terminal.queued_bytes <= 4096
+        assert len(app.screen_stack) == 1
+        assert await wait_for(pilot, lambda: terminal.queued_bytes == 0)
+        # The shell recovers and takes new input. (Input arriving while bash
+        # is still handling the interrupt is dropped, as in any terminal —
+        # so retry rather than race it.)
+        recovered = False
+        for _ in range(5):
+            terminal.send_text("echo don''e\n")
+            if await wait_for(pilot, lambda: "done" in terminal_text(terminal), timeout=3):
+                recovered = True
+                break
+        assert recovered
+        assert await wait_for(pilot, lambda: not terminal.border_title)

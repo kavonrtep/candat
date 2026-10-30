@@ -13,7 +13,9 @@ import pty
 import signal
 import struct
 import termios
+import threading
 import time
+from collections import deque
 
 import pyte
 from rich.style import Style
@@ -78,6 +80,72 @@ KEY_BYTES = {
 }
 
 
+class InputPump:
+    """Writes input to the pty on its own thread, in order.
+
+    A pty's input buffer is small; when the program behind it stops
+    reading (a busy REPL), a plain os.write blocks — on the UI thread that
+    froze the whole app. Here the UI only queues bytes; `pending` counts
+    what is not yet written, and `discard` drops the queue (C-c).
+    """
+
+    CHUNK = 4096
+
+    def __init__(self, fd: int) -> None:
+        self._fd = fd
+        self._chunks: deque[bytes] = deque()
+        self._cond = threading.Condition()
+        self._closed = False
+        self.pending = 0
+        threading.Thread(target=self._run, daemon=True, name="pty-input").start()
+
+    def write(self, data: bytes) -> None:
+        with self._cond:
+            if self._closed:
+                return
+            # Small pieces so a discard can drop most of a big paste.
+            for i in range(0, len(data), self.CHUNK):
+                self._chunks.append(data[i : i + self.CHUNK])
+            self.pending += len(data)
+            self._cond.notify()
+
+    def discard(self) -> int:
+        """Drop queued input (the piece being written still finishes);
+        returns the number of bytes dropped."""
+        with self._cond:
+            dropped = sum(len(chunk) for chunk in self._chunks)
+            self._chunks.clear()
+            self.pending -= dropped
+            return dropped
+
+    def close(self) -> None:
+        with self._cond:
+            self._closed = True
+            self._chunks.clear()
+            self.pending = 0
+            self._cond.notify()
+
+    def _run(self) -> None:
+        while True:
+            with self._cond:
+                while not self._chunks and not self._closed:
+                    self._cond.wait()
+                if self._closed:
+                    return
+                data = self._chunks.popleft()
+            while data:
+                try:
+                    written = os.write(self._fd, data)
+                except OSError:  # the shell went away
+                    self.close()
+                    return
+                data = data[written:]
+                with self._cond:
+                    if self._closed:
+                        return
+                    self.pending -= written
+
+
 def _key_to_bytes(event: events.Key) -> bytes | None:
     key = event.key
     if key in KEY_BYTES:
@@ -133,6 +201,8 @@ class TerminalPane(Widget):
         # shell's terminal setup (tcsetattr) can discard early input.
         self._seen_output = False
         self._pending_input: list[bytes] = []
+        self._pump: InputPump | None = None
+        self._pump_timer = None
         # Spawn is deferred until the widget has a real size — forking while
         # hidden would size the pty 20x4 and early output would wrap and
         # scroll off that tiny screen before the resize catches up.
@@ -177,6 +247,7 @@ class TerminalPane(Widget):
             finally:
                 os._exit(1)
         self._pid, self._fd = pid, fd
+        self._pump = InputPump(fd)
         self._set_winsize(rows, cols)
         self.run_worker(self._reader, thread=True, exclusive=False)
 
@@ -212,9 +283,9 @@ class TerminalPane(Widget):
             # First output means the shell finished its terminal setup and
             # is reading input; flush anything sent before that.
             self._seen_output = True
-            if self._pending_input and self._fd is not None:
+            if self._pending_input:
                 for chunk in self._pending_input:
-                    os.write(self._fd, chunk)
+                    self._write(chunk)
                 self._pending_input.clear()
         old_cursor_row = self._screen.cursor.y
         self._stream.feed(data)
@@ -231,6 +302,10 @@ class TerminalPane(Widget):
         self.refresh()
 
     def _reap(self) -> None:
+        if self._pump is not None:
+            self._pump.close()
+            self._pump = None
+            self._update_title()
         if self._fd is not None:
             try:
                 os.close(self._fd)
@@ -309,13 +384,56 @@ class TerminalPane(Widget):
                 while self.scrolled_back:
                     self._screen.next_page()
                 self._update_scrollback_state()
-            os.write(self._fd, data)
+            if event.key == "ctrl+c" and self._interrupt_queued():
+                return
+            self._write(data)
+
+    # -- queued input ----------------------------------------------------------
+
+    def _write(self, data: bytes) -> None:
+        if self._pump is None:
+            return
+        self._pump.write(data)
+        if self._pump.pending and self._pump_timer is None:
+            self._pump_timer = self.set_interval(0.25, self._update_title)
+
+    @property
+    def queued_bytes(self) -> int:
+        return self._pump.pending if self._pump is not None else 0
+
+    def _interrupt_queued(self) -> bool:
+        """C-c while input is still queued: drop the queue and interrupt the
+        foreground job directly (a ^C byte would wait behind the queue)."""
+        if self._pump is None or not self._pump.pending:
+            return False
+        self._pump.discard()
+        try:
+            os.killpg(os.tcgetpgrp(self._fd), signal.SIGINT)
+        except (OSError, TypeError):
+            pass
+        # The piece in flight may end mid-line; a ^C behind it makes the
+        # line discipline flush unread input and the shell drop the line.
+        self._pump.write(b"\x03")
+        self._update_title()
+        return True
+
+    def _update_title(self) -> None:
+        queued = self.queued_bytes
+        if self.scrolled_back:
+            title = "history — Shift+PgDn to return"
+        elif queued:
+            kb = max(1, queued // 1024)
+            title = f"sending input… {kb} KB queued — C-c discards"
+        else:
+            title = None
+        self.border_title = title
+        if not queued and self._pump_timer is not None:
+            self._pump_timer.stop()
+            self._pump_timer = None
 
     def _update_scrollback_state(self) -> None:
         self._line_cache.clear()
-        self.border_title = (
-            "history — Shift+PgDn to return" if self.scrolled_back else None
-        )
+        self._update_title()
         self.refresh()
 
     def on_mouse_scroll_up(self, event: events.MouseScrollUp) -> None:
@@ -336,7 +454,7 @@ class TerminalPane(Widget):
     def on_paste(self, event: events.Paste) -> None:
         if self.running and self._fd is not None:
             event.stop()
-            os.write(self._fd, event.text.encode())
+            self._write(event.text.encode())
 
     def send_text(self, text: str) -> None:
         """Write text to the shell's stdin (used by send-to-REPL). Until the
@@ -344,7 +462,7 @@ class TerminalPane(Widget):
         starting shell's terminal setup can discard early input, and the
         spawn itself may still be waiting for layout."""
         if self.running and self._seen_output and self._fd is not None:
-            os.write(self._fd, text.encode())
+            self._write(text.encode())
         else:
             self._pending_input.append(text.encode())
 

@@ -290,3 +290,16 @@ async def test_index_cache_drops_changed_file(tmp_path):
     reader.close()
     path.write_text("a\nb\nc\nd\n")  # size/mtime changed underneath the cache
     assert INDEX_CACHE.take(path) is None
+
+
+async def test_mid_size_wide_file_routes_to_bigtable(tmp_path):
+    """Well under the byte/row caps, but 30k rows x 10 columns is too much
+    grid for the synchronous classic table."""
+    f = tmp_path / "mid.csv"
+    header = ",".join(f"c{i}" for i in range(10))
+    f.write_text(header + "\n" + "".join(f"{i},1,2,3,4,5,6,7,8,9\n" for i in range(30_000)))
+    small = tmp_path / "small.csv"
+    small.write_text(header + "\n" + "".join(f"{i},1,2,3,4,5,6,7,8,9\n" for i in range(500)))
+    async with open_app([f]) as (app, pilot):
+        assert app._wants_bigtable(f)
+        assert not app._wants_bigtable(small)

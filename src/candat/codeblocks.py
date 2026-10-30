@@ -209,11 +209,13 @@ _LINK = re.compile(r"!?\[(?P<label>[^\]\n]+)\]\((?P<url>[^)\s]+)(?:\s+\"[^\"]*\"
 _AUTOLINK = re.compile(r"<https?://[^>\s]+>|(?<![(<])\bhttps?://[^\s)>\]]+")
 
 
-def inline_highlights(line: str) -> list[tuple[int, int, str]]:
+@lru_cache(maxsize=65536)
+def inline_highlights(line: str) -> tuple[tuple[int, int, str], ...]:
     """(start_byte, end_byte, name) spans for one prose line. Emphasis and
-    links inside code spans are left alone."""
+    links inside code spans are left alone. Cached per line: rebuilding the
+    highlight map after a keystroke only re-scans the lines that changed."""
     if not any(c in line for c in "`*_[<h"):
-        return []
+        return ()
     spans: list[tuple[int, int, str]] = []
     code: list[tuple[int, int]] = []
     for m in _CODE_SPAN.finditer(line):
@@ -237,5 +239,7 @@ def inline_highlights(line: str) -> list[tuple[int, int, str]]:
         if free(*m.span()):
             spans.append((m.start(), m.end(), "link.uri"))
     if line.isascii():
-        return spans
-    return [(len(line[:s].encode()), len(line[:e].encode()), n) for s, e, n in spans]
+        return tuple(spans)
+    return tuple(
+        (len(line[:s].encode()), len(line[:e].encode()), n) for s, e, n in spans
+    )

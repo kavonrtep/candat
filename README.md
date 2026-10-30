@@ -19,24 +19,27 @@ table viewer, a large-file pager, and a real shell inside.
   resizable by keys or mouse, configurable icons.
 - **Buffers and windows** — tabs, side-by-side or stacked splits showing the
   same buffer as linked views with independent cursors.
-- **Markdown** — live side-by-side preview (scroll-synced, rendered in the
-  background so big documents never block typing), plus structural editing:
+- **Markdown** — live side-by-side preview (scroll-synced, rendered off the
+  UI thread so typing stays responsive), plus structural editing:
   smart Enter for lists/quotes, `M-q` paragraph fill and table alignment,
   table cell navigation, checkbox and emphasis helpers. Code blocks are
   highlighted in their language (`C-c C-b` sends one to the terminal), the
   preview has a cursor with selection and copy, and each file remembers
   its view (raw / preview / split).
 - **Table viewer** — `.csv`/`.tsv` (or any delimited buffer) as a table with
-  no row limit, background search and regex row filter.
+  no row limit; big files get a windowed table with background search and
+  regex row filter.
 - **Documents** — `.docx` and `.odt` open as rendered markdown (read-only;
   via pandoc when installed, a built-in converter otherwise), and the
   markdown can be exported with `C-x C-w`.
 - **Large-file pager** — `less`-style streaming view for multi-GB files,
   with follow mode and background search; binary files are guarded, and
   anything slow (conversion, search, a big render or load) shows a spinner
-  in the status bar rather than freezing.
+  in the status bar.
 - **Terminal inside** — a real PTY panel with scrollback, and `C-c C-c` to
-  send the region or line to it as a REPL.
+  send the region or line to it as a REPL. Input is written on its own
+  thread, so a busy REPL that stops reading never freezes the editor; the
+  terminal title shows queued input and `C-c` discards it.
 - **System clipboard** — copies mirror over OSC 52 (works through SSH and
   tmux) with a local wl-copy/xclip fallback, configurable.
 - **Safety** — atomic saves, encoding/line-ending preservation, disk-change
@@ -135,7 +138,7 @@ automatically; buffers with local edits ask before discarding them.
 Text files over 10 MB open in a `less`-style pager instead of the editor:
 the file stays on disk behind a sparse line index (multi-GB files open with
 bounded memory, with progress shown while indexing), and searches scan in
-the background so the UI never freezes — `C-g` cancels one mid-flight.
+the background so the UI stays responsive — `C-g` cancels one mid-flight.
 Scroll (keys or mouse wheel), `g`/`G`, `/`/`?` and `C-s`/`C-r` search with
 all visible matches highlighted, `C-x w` wrap, `M-g` goto line. `F` follows
 a growing file like `less +F` (rotation-aware; any key stops), and `e`
@@ -146,7 +149,8 @@ partial view can never overwrite the real file.
 `.csv` and `.tsv` files open in a table viewer (inspired by
 [csvlens](https://github.com/YS-L/csvlens)): a sticky header, row cursor,
 and original file line numbers in the gutter. There is **no row limit**:
-big files get a windowed table backed by a sparse index (built in the
+files beyond a small grid (about 150k cells), and any file over 10 MB, get a
+windowed table backed by a sparse index (built in the
 background — the table shows and scrolls immediately), so ten million rows
 cost the same as a hundred, `G` jumps straight to the last row, and search
 scans the whole file once and then steps match-to-match instantly. And it isn't just for CSV: **any** buffer
@@ -250,13 +254,21 @@ atomic — written to a temp file and renamed over the original — so a crash o
 full disk never leaves a half-written file.
 
 Unsaved edits are snapshotted to `~/.cache/candat/recovery/` every 20 seconds
-and on a crash; a clean quit clears them, and if any survive they are reported
+(written in the background, only when something changed) and on a crash; a clean quit clears them, and if any survive they are reported
 (never auto-applied) on the next launch. Crash logs (including hard faults
 caught by `faulthandler`) land in `~/.cache/candat/`.
 
 The file tree has a filter box on top: press `/` while the tree is focused (or click it), type to narrow the tree to files whose path matches, `Esc` clears it. `r` (or `g`, dired-style) refreshes the tree from disk — deliberately manual, since re-walking a large tree can take a moment. `w` (or `M-w`, dired-style again) copies the selected file or directory's absolute path to the kill ring, ready to yank into any buffer with `C-y`. The file tree opens files on selection. The default theme is `candat-light`
 (high-contrast dark-on-white). The markdown preview is linked: it follows
 the editor's scroll position.
+
+## Diagnosing freezes
+
+If candat ever stops responding, run it with `CANDAT_WATCHDOG=1` (or a
+threshold in seconds, e.g. `CANDAT_WATCHDOG=0.3`). Whenever the UI is
+blocked for longer than that (0.5 s by default), the stack of what was
+running is appended to `~/.local/state/candat/stalls.log` — attaching that
+file to a bug report shows exactly what caused the freeze.
 
 ## Stability
 

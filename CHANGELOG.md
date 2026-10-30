@@ -7,6 +7,30 @@ covered by the compatibility promise.
 
 ## [Unreleased]
 
+### Fixed
+- **A busy REPL can no longer freeze candat.** Input to the terminal (typing,
+  paste, `C-c C-c`, `C-c C-b`) is written on its own thread; when the program
+  stops reading, the editor stays responsive, the terminal title shows how
+  much input is queued, and `C-c` discards the queue and interrupts the job.
+- **Growing files are indexed without long pauses.** The line index scan is
+  about 12x faster on short lines, and catching up with a fast-growing log
+  takes at most ~30 ms per poll instead of seconds.
+- **Crash-recovery snapshots are written in the background**, only for
+  buffers that changed since the last snapshot, never overlapping.
+- **Replace-all (`!` in `M-%`) is one edit**: a single pass instead of an
+  edit and whole-document rescan per match, and one undo restores it.
+- The system-clipboard tool (wl-copy/xclip) runs in the background, so a
+  slow or hung tool no longer delays the copy.
+- Markdown highlighting caches inline spans per line, cutting its per-keystroke
+  cost by about 3x on large documents.
+- Mid-size table files (above ~150k cells) open in the windowed table, whose
+  search and filter run in the background, instead of the classic table.
+
+### Added
+- `CANDAT_WATCHDOG=1` logs the UI thread's stack to
+  `~/.local/state/candat/stalls.log` whenever the UI is blocked for more
+  than 0.5 s (or a threshold you give), to pin down any remaining freeze.
+
 ## [1.7.0] - 2026-10-30
 
 ### Added

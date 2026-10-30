@@ -83,3 +83,33 @@ async def test_tree_copy_path_mirrors(tmp_path):
         await pilot.press("down", "w")
         assert app.clipboard == app.kill_ring.current
         assert app.clipboard.startswith("/")
+
+
+def test_slow_clipboard_tool_does_not_block_the_copy(monkeypatch):
+    import threading
+    import time
+
+    calls: list[str] = []
+    release = threading.Event()
+
+    def slow_tool(text: str) -> None:
+        release.wait(5)
+        calls.append(text)
+
+    monkeypatch.setattr(clipboard, "_copy_via_tool", slow_tool)
+
+    class FakeApp:
+        def copy_to_clipboard(self, text: str) -> None:
+            pass
+
+    started = time.monotonic()
+    for text in ("one", "two", "three"):
+        clipboard._copy(FakeApp(), text)
+    assert time.monotonic() - started < 0.5
+    release.set()
+    deadline = time.monotonic() + 5
+    while clipboard._worker_running and time.monotonic() < deadline:
+        time.sleep(0.01)
+    # Copies made while the tool is busy collapse to the latest one.
+    assert calls[-1] == "three"
+    assert "two" not in calls

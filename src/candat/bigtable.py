@@ -41,12 +41,14 @@ from textual.worker import get_current_worker
 from .csvview import CELL_MAX, delimiter_label, parse_delimiter, sniff_sample
 from .pager import (
     CHUNK,
+    GROW_SCAN_SECONDS,
     INDEX_CACHE,
     SPARSE_STEP,
     LineIndex,
     _cell_crop,
     _FileReader,
     smartcase_pattern,
+    time_budget,
 )
 
 MAX_COL_FRACTION = 0.35  # one column may take at most this much of the width
@@ -310,9 +312,12 @@ class BigTable(Widget, can_focus=True):
         if reader.refresh_size() > self._index.scanned:
             # Index only the new tail, bounded per poll to keep the UI live.
             already = self._index.scanned
+            over_time = time_budget(GROW_SCAN_SECONDS)
             self._index.scan(
                 reader,
-                should_stop=lambda: self._index.scanned - already > GROW_SCAN_BUDGET,
+                # At least one chunk per poll, so catch-up always progresses.
+                should_stop=lambda: self._index.scanned > already
+                and (over_time() or self._index.scanned - already > GROW_SCAN_BUDGET),
             )
             self._moved()
             return "grew"

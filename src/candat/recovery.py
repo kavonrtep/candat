@@ -16,7 +16,13 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from pathlib import Path
+
+# Snapshots are written from a worker thread; the lock keeps a clean-quit
+# clear() from racing a write still in flight (which would leave a stale
+# snapshot behind and a false "recovered" warning on the next launch).
+_lock = threading.Lock()
 
 
 def recovery_dir() -> Path:
@@ -34,6 +40,11 @@ def snapshot(buffers: list[tuple[Path | None, str]]) -> Path | None:
     """Write each (path, text) as a recovery file; return the directory used,
     or None if nothing was written. Never raises — recovery must not itself
     break saving or crashing."""
+    with _lock:
+        return _snapshot(buffers)
+
+
+def _snapshot(buffers: list[tuple[Path | None, str]]) -> Path | None:
     try:
         directory = recovery_dir()
         directory.mkdir(parents=True, exist_ok=True)
@@ -56,6 +67,11 @@ def snapshot(buffers: list[tuple[Path | None, str]]) -> Path | None:
 
 def clear() -> None:
     """Drop all recovery files (called on a clean quit). Never raises."""
+    with _lock:
+        _clear()
+
+
+def _clear() -> None:
     directory = recovery_dir()
     try:
         entries = list(directory.iterdir())

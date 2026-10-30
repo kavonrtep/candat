@@ -1,6 +1,6 @@
 """Best-effort mirroring of copies to the system clipboard.
 
-Two channels, both fire-and-forget:
+Two channels, both fire-and-forget (the tool runs on a background thread):
 
 - The OSC 52 escape sequence through the terminal (Textual's
   ``App.copy_to_clipboard``). Works in any terminal that supports it —
@@ -25,6 +25,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import threading
 
 from . import config
 
@@ -51,7 +52,36 @@ def copy_on_kill(app, text: str) -> None:
 
 def _copy(app, text: str) -> None:
     app.copy_to_clipboard(text)  # OSC 52 (also recorded on app.clipboard)
-    _copy_via_tool(text)
+    _mirror_in_background(text)
+
+
+# The tool runs on one background thread: a slow or hung clipboard tool
+# must not stall the key that copied. Latest wins — copies made while the
+# tool is busy collapse into the newest one.
+_slot_lock = threading.Lock()
+_slot: list[str] = []  # at most one waiting text
+_worker_running = False
+
+
+def _mirror_in_background(text: str) -> None:
+    global _worker_running
+    with _slot_lock:
+        _slot[:] = [text]
+        if _worker_running:
+            return
+        _worker_running = True
+    threading.Thread(target=_mirror_worker, daemon=True, name="clipboard").start()
+
+
+def _mirror_worker() -> None:
+    global _worker_running
+    while True:
+        with _slot_lock:
+            if not _slot:
+                _worker_running = False
+                return
+            text = _slot.pop()
+        _copy_via_tool(text)
 
 
 def _tool_command() -> list[str] | None:

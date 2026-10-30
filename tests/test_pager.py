@@ -400,3 +400,51 @@ async def test_empty_file(tmp_path):
         assert pager._viewport_rows(3, 40) == ["", "", ""]
     finally:
         await cm.__aexit__(None, None, None)
+
+
+async def test_growth_scan_is_time_budgeted(tmp_path, monkeypatch):
+    """A big burst of tiny lines is indexed over several polls, each one
+    short, instead of one long UI-thread scan."""
+    import time
+
+    from candat import pager as pager_module
+
+    f = tmp_path / "burst.log"
+    f.write_text("start\n")
+    app, pilot, cm, pager = await open_pager(f)
+    try:
+        monkeypatch.setattr(pager_module, "GROW_SCAN_SECONDS", 0.0)  # 1 chunk/poll
+        with f.open("ab") as handle:
+            handle.write(b"x\n" * (3 * (1 << 19)))  # 3 MiB of 2-byte lines
+        polls = 0
+        while pager.check_disk() == "grew" and polls < 50:
+            polls += 1
+            if pager._index.scanned == os.path.getsize(f):
+                break
+        assert polls > 1  # caught up over several polls
+        assert pager.line_count == 1 + 3 * (1 << 19)
+        started = time.monotonic()
+        pager.check_disk()
+        assert time.monotonic() - started < 0.5
+    finally:
+        await cm.__aexit__(None, None, None)
+
+
+def test_index_scan_matches_reference():
+    from candat import pager as pager_module
+
+    class Reader:
+        def __init__(self, data):
+            self.data, self.size = data, len(data)
+
+        def read(self, offset, n):
+            return self.data[offset : offset + n]
+
+    data = b"".join(b"y" * (i % 7) + b"\n" for i in range(3000)) + b"tail"
+    index = pager_module.LineIndex()
+    index.scan(Reader(data))
+    positions = [i + 1 for i, byte in enumerate(data) if byte == 10]
+    step = pager_module.SPARSE_STEP
+    assert index.newlines == len(positions)
+    assert index.offsets == [0] + positions[step - 1 :: step]
+    assert index.last_line_start == positions[-1]

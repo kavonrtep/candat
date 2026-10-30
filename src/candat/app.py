@@ -14,11 +14,15 @@ from textual.css.query import NoMatches
 from textual.widgets import DirectoryTree, Static, TabbedContent, TextArea
 
 from .buffers import BufferListScreen
-from . import clipboard, codeblocks, config, recovery, session
+from . import clipboard, codeblocks, config, recovery, session, watchdog
 from .chords import CTRL_C_MAP, CTRL_X_MAP, ChordScreen
 from .commands import CandatCommands
 from .bigtable import BigTable, has_quoted_newline
-from .csvview import CSV_SUFFIXES, MAX_ROWS  # default set; config can extend
+from .csvview import (  # CSV_SUFFIXES: default set; config can extend
+    CSV_SUFFIXES,
+    MAX_ROWS,
+    sniff_sample,
+)
 from .dialogs import ConfirmScreen, PromptScreen
 from .docconvert import ConversionError, convert_to_markdown, is_document
 from .editor import (
@@ -41,6 +45,10 @@ from .replace import QueryReplaceScreen
 from .terminal import TerminalPane
 from .theme import CANDAT_LIGHT
 
+
+# Table files estimated above this many cells open in the windowed BigTable:
+# the classic table loads, searches and filters on the UI thread.
+CLASSIC_MAX_CELLS = 150_000
 
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 # Operations shorter than this never show an indicator, so the common
@@ -271,6 +279,10 @@ class CandatApp(App[None]):
             self._root = dirs[0]
         self._files = [p for p in paths if not p.is_dir()]
         self._buffer_count = 0
+        # Crash-recovery autosave state (see _autosave_recovery).
+        self._recovery_busy = False
+        self._recovery_signature: tuple = ()
+        self._quitting = False
         self._group_count = 1
         self._active_group: EditorGroup | None = None
 
@@ -300,6 +312,7 @@ class CandatApp(App[None]):
             self._refresh_status()
         self.set_interval(1.0, self._check_disk_changes)
         self.set_interval(20.0, self._autosave_recovery)
+        self._watchdog = watchdog.start_from_env()  # CANDAT_WATCHDOG=1
         self._announce_recovery()
 
     # -- crash recovery ------------------------------------------------------
@@ -321,12 +334,31 @@ class CandatApp(App[None]):
 
     def _autosave_recovery(self) -> None:
         """Snapshot dirty buffers to the recovery dir; drop the snapshots when
-        nothing is dirty, so a saved-and-clean editor leaves nothing behind."""
+        nothing is dirty, so a saved-and-clean editor leaves nothing behind.
+
+        The file I/O runs on a worker thread (a slow disk or network home
+        must not stall typing); buffers unchanged since the last snapshot
+        are skipped, and a tick is skipped while the previous write runs."""
+        if self._recovery_busy or self._quitting:
+            return
+        dirty = [editor for editor in self.all_editors() if editor.modified]
+        signature = tuple((id(editor), editor.revision) for editor in dirty)
+        if signature == self._recovery_signature:
+            return
+        self._recovery_signature = signature
         snapshots = self._dirty_snapshots()
-        if snapshots:
-            recovery.snapshot(snapshots)
-        else:
-            recovery.clear()
+        self._recovery_busy = True
+
+        def write() -> None:
+            try:
+                if snapshots:
+                    recovery.snapshot(snapshots)
+                else:
+                    recovery.clear()
+            finally:
+                self._recovery_busy = False
+
+        self.run_worker(write, thread=True, group="recovery")
 
     def _announce_recovery(self) -> None:
         leftover = recovery.pending()
@@ -410,6 +442,9 @@ class CandatApp(App[None]):
         session.save(self._root, files, active)
 
     def exit(self, *args, **kwargs) -> None:  # every quit path funnels here
+        self._quitting = True  # no new recovery snapshots after this
+        if getattr(self, "_watchdog", None) is not None:
+            self._watchdog.stop()
         try:
             self._save_session()
             recovery.clear()  # a clean quit needs no crash recovery
@@ -647,7 +682,16 @@ class CandatApp(App[None]):
             return False
         lines = sample.count("\n") or 1
         est_rows = size / max(1, len(sample) / lines)
-        return size > LARGE_FILE_BYTES or est_rows > MAX_ROWS
+        # Only grids that are cheap to handle whole (about a second for 150k
+        # cells) stay on the classic table.
+        delimiter, _ = sniff_sample(sample, path.suffix.lower())
+        first = sample.split("\n", 1)[0]
+        est_cells = est_rows * (first.count(delimiter) + 1)
+        return (
+            size > LARGE_FILE_BYTES
+            or est_rows > MAX_ROWS
+            or est_cells > CLASSIC_MAX_CELLS
+        )
 
     def _enter_table(self, pane: BufferPane, path: Path) -> None:
         """Table view for a file: windowed for huge files, classic otherwise."""
