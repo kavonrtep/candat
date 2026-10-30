@@ -63,7 +63,11 @@ KEY_HELP = """\
 ## Markdown
 
 In `.md` buffers the editor helps with structure (`C-c C-v` cycles the live
-preview). `Enter` continues lists: `-`, `1.` (numbers renumber), `- [ ]`
+preview; each file reopens in the view you left it in, and new files in the
+last view you picked). Fenced code blocks are highlighted in their language;
+`C-c C-b` sends the block at point to the terminal. The rendered preview has
+a cursor too: move it, set the mark with `C-SPC` (or hold Shift, or drag the
+mouse) and copy the selection with `M-w`. `Enter` continues lists: `-`, `1.` (numbers renumber), `- [ ]`
 task boxes, and `>` quotes; `Enter` on an empty item ends the list. Inside
 a pipe table, `Tab` / `Shift-Tab` hop between cells (aligning the table as
 they go) and `Tab` past the last cell adds a row; on a list item they
@@ -176,6 +180,7 @@ shown up to their first 64 KB (marked with `…`).
 | Key | Action |
 | --- | --- |
 | `C-c C-c` | send region or current line to the terminal REPL |
+| `C-c C-b` | send the markdown code block at point to the terminal (then moves past it) |
 | `C-x t` | toggle the terminal panel |
 | `Shift+PgUp/PgDn`, wheel | terminal scrollback (typing snaps back) |
 | `C-x o` | cycle focus: tree → editor → terminal |

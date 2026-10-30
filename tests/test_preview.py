@@ -121,3 +121,67 @@ async def test_preview_scrolls_with_content(tmp_path: Path):
         preview = pane.preview
         assert await wait_for(pilot, lambda: "Head 199" in preview.plain_text())
         assert preview.max_scroll_y > 0  # virtual size covers the document
+
+
+async def test_emphasis_is_coloured_not_italic():
+    from candat.preview import render_strips
+
+    strips = render_strips("plain *emph* text\n", 40)
+    styles = [seg.style for strip in strips for seg in strip if "emph" in seg.text]
+    assert styles and not any(s.italic for s in styles if s)
+    assert any(s.color is not None for s in styles if s)
+
+
+async def test_preview_cursor_select_and_copy(tmp_path: Path):
+    note = tmp_path / "note.md"
+    note.write_text("first line\n\nsecond line\n")
+    app = CandatApp([note])
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        pane = app.tabs.active_pane
+        await chord(pilot, "ctrl+c", "ctrl+v")  # preview only, focused
+        preview = pane.preview
+        assert app.focused is preview
+        assert await wait_for(pilot, lambda: "second" in preview.plain_text())
+        row = next(i for i, line in enumerate(preview._lines) if "first" in line)
+        preview.move_cursor(row, preview._lines[row].index("first"))
+        await pilot.press("ctrl+@")
+        for _ in range(5):
+            await pilot.press("right")
+        assert preview.selected_text == "first"
+        await pilot.press("escape", "w")  # ESC w == M-w
+        await pilot.pause()
+        assert app.kill_ring.current == "first"
+        assert preview.mark is None
+        # Shift-selection across lines; C-g drops it.
+        await pilot.press("shift+down", "shift+down")
+        assert "\n" in preview.selected_text
+        await pilot.press("ctrl+g")
+        assert preview.mark is None
+
+
+async def test_preview_mouse_drag_selects(tmp_path: Path):
+    note = tmp_path / "note.md"
+    note.write_text("alpha beta gamma\n")
+    app = CandatApp([note])
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        pane = app.tabs.active_pane
+        await chord(pilot, "ctrl+c", "ctrl+v")
+        preview = pane.preview
+        assert await wait_for(pilot, lambda: "alpha" in preview.plain_text())
+        row = next(i for i, line in enumerate(preview._lines) if "alpha" in line)
+        x = preview._lines[row].index("alpha")
+        gutter = 2  # border-left + padding before the content
+        await pilot.mouse_down(preview, offset=(x + gutter, row))
+        await pilot.hover(preview, offset=(x + gutter + 5, row))
+        await pilot.mouse_up(preview, offset=(x + gutter + 5, row))
+        await pilot.pause()
+        assert preview.selected_text == "alpha"
+
+
+async def test_rmd_chunk_header_renders_as_code():
+    from candat.preview import _plain_fences
+
+    assert _plain_fences("```{r, echo=FALSE}\nx\n```") == "```r\nx\n```"
+    assert _plain_fences("```python\n{x}\n```") == "```python\n{x}\n```"

@@ -7,6 +7,28 @@ covered by the compatibility promise.
 
 ## [Unreleased]
 
+### Added
+- **Readable raw markdown.** Fenced code blocks sit on a tinted background
+  and are syntax-highlighted in the language named by the fence
+  (```` ```python ````, aliases like `py`/`sh`/`js`, and R Markdown's
+  ```` ```{r, echo=FALSE} ````). Inline `code`, bold, italic and links are
+  styled in prose; headings, list markers, types and R function calls get
+  higher-contrast colours.
+- **`C-c C-b` sends the markdown code block at point to the terminal**
+  (without the fences) and moves past it, so repeated presses step block by
+  block. `C-c C-c` still sends a line or the region.
+- **Cursor, selection and copy in the rendered preview.** Move with the
+  usual keys, select with `C-SPC`, Shift+movement or a mouse drag, and copy
+  with `M-w` (`ESC w`, `C-w`) to the kill ring and system clipboard.
+- **Markdown files remember their view.** Each file reopens raw, rendered
+  or split as you left it; new files open in the last view you picked.
+
+### Changed
+- The preview shows emphasis in colour instead of hard-to-read terminal
+  italics, inline code matches the editor, and R Markdown chunks are
+  highlighted. The preview always uses the app's light theme instead of
+  the terminal's default colours.
+
 ## [1.6.1] - 2026-09-02
 
 ### Changed

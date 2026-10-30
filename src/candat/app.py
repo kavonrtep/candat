@@ -14,7 +14,7 @@ from textual.css.query import NoMatches
 from textual.widgets import DirectoryTree, Static, TabbedContent, TextArea
 
 from .buffers import BufferListScreen
-from . import clipboard, config, recovery, session
+from . import clipboard, codeblocks, config, recovery, session
 from .chords import CTRL_C_MAP, CTRL_X_MAP, ChordScreen
 from .commands import CandatCommands
 from .bigtable import BigTable, has_quoted_newline
@@ -474,7 +474,7 @@ class CandatApp(App[None]):
         editor.focus()
         self._refresh_tab_labels()
         if editor.language == "markdown" and not editor.document_view:
-            await pane.set_preview_mode("split")
+            await pane.set_preview_mode(session.view_mode(editor.path))
         return pane
 
     async def _new_buffer(
@@ -586,8 +586,9 @@ class CandatApp(App[None]):
                 return
             self._refresh_status()
             if editor.language == "markdown":
-                await current.set_preview_mode("split")
-            editor.focus()
+                await current.set_preview_mode(session.view_mode(editor.path))
+            if current.preview_mode != "only":
+                editor.focus()
             return
         if is_doc:
             editor = await self._new_buffer(path, load_text=False)
@@ -854,6 +855,9 @@ class CandatApp(App[None]):
             (PREVIEW_MODES.index(pane.preview_mode) + 1) % len(PREVIEW_MODES)
         ]
         self.call_later(pane.set_preview_mode, next_mode)
+        if not pane.editor.document_view:
+            # New markdown files (and this one, next time) open in this view.
+            session.save_view_mode(pane.editor.path, next_mode)
 
     def action_table_view(self) -> None:
         """M-x table-view: toggle the table even where C-c C-v means
@@ -930,6 +934,8 @@ class CandatApp(App[None]):
             return
         if pane is not None and pane.is_bigtable and pane.bigtable.searching:
             pane.bigtable.cancel_search()
+            return
+        if isinstance(self.focused, MarkdownPreview) and self.focused.clear_mark():
             return
         editor = self.active_editor
         if editor is not None and editor.mark_active:
@@ -1519,6 +1525,15 @@ class CandatApp(App[None]):
     def action_help(self) -> None:
         self.push_screen(HelpScreen())
 
+    def _repl(self) -> TerminalPane:
+        """The terminal, opened and with a shell running."""
+        terminal = self.query_one(TerminalPane)
+        if not terminal.has_class("-open"):
+            terminal.add_class("-open")
+        if not terminal.running:
+            terminal.spawn()
+        return terminal
+
     def action_send_to_repl(self) -> None:
         """C-c C-c: send the region (or current line) to the terminal, opening
         it if needed. Without a region the cursor advances one line, so
@@ -1526,11 +1541,7 @@ class CandatApp(App[None]):
         editor = self.active_editor
         if editor is None:
             return
-        terminal = self.query_one(TerminalPane)
-        if not terminal.has_class("-open"):
-            terminal.add_class("-open")
-        if not terminal.running:
-            terminal.spawn()
+        terminal = self._repl()
         if editor.mark_active and not editor.selection.is_empty:
             text = editor.selected_text
             editor.deactivate_mark()
@@ -1542,6 +1553,30 @@ class CandatApp(App[None]):
         if not text.endswith("\n"):
             text += "\n"
         terminal.send_text(text)
+        editor.focus()
+
+    def action_send_code_block(self) -> None:
+        """C-c C-b: send the fenced code block around point (its content,
+        without the fences) to the terminal, then move past the closing
+        fence so repeated C-c C-b steps block by block. Within a block,
+        C-c C-c still sends a line or the region."""
+        editor = self.active_editor
+        if editor is None:
+            return
+        lines = editor.document.lines
+        block = codeblocks.fence_at(lines, editor.point[0])
+        if block is None:
+            self.notify("Not in a fenced code block", severity="warning", timeout=2)
+            return
+        rows = block.content_rows(len(lines))
+        if not rows:
+            self.notify("Empty code block", timeout=2)
+            return
+        text = "\n".join(lines[rows.start : rows.stop]) + "\n"
+        self._repl().send_text(text)
+        editor.deactivate_mark()
+        after = (block.close if block.close is not None else rows.stop - 1) + 1
+        editor.move_cursor((min(after, editor.document.line_count - 1), 0))
         editor.focus()
 
     def action_query_replace(self) -> None:

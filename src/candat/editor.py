@@ -13,14 +13,17 @@ import stat
 import tempfile
 from pathlib import Path
 
+from rich.segment import Segment
 from rich.style import Style
 from textual import events
 from textual.binding import Binding
+from textual.strip import Strip
 from textual.widgets import TextArea
 from textual.widgets.text_area import Selection
 
-from . import clipboard, config, markdown
+from . import clipboard, codeblocks, config, markdown
 from .docconvert import ConversionError, convert_to_markdown
+from .theme import CODE_BLOCK_BG, editor_theme
 
 LANGUAGES: dict[str, str] = {
     ".py": "python",
@@ -81,6 +84,10 @@ FILENAMES: dict[str, str] = {
     ".zprofile": "bash",
     ".inputrc": "bash",
 }
+
+
+_EDITOR_THEME = editor_theme()
+_CODE_BG = Style(bgcolor=CODE_BLOCK_BG)
 
 
 def language_for(path: Path | None) -> str | None:
@@ -320,7 +327,6 @@ class EditorBuffer(TextArea):
         super().__init__(
             text,
             language=None,
-            theme="github_light",
             show_line_numbers=True,
             soft_wrap=False,
             tab_behavior="indent",
@@ -356,6 +362,10 @@ class EditorBuffer(TextArea):
         # Incremental-search highlight: every occurrence of this query in the
         # visible lines is styled (the current match still rides the selection).
         self._search_highlight = ""
+        # Rows of fenced code blocks (markdown only), drawn on a tint.
+        self._code_rows: frozenset[int] = frozenset()
+        self.register_theme(_EDITOR_THEME)
+        self.theme = _EDITOR_THEME.name
         self._apply_language()
 
     # -- search highlight ----------------------------------------------------
@@ -378,6 +388,51 @@ class EditorBuffer(TextArea):
 
     def clear_search_highlight(self) -> None:
         self.set_search_highlight("")
+
+    # -- markdown readability -----------------------------------------------
+
+    def _build_highlight_map(self) -> None:
+        """Builtin highlights, then (markdown) per-language highlighting
+        inside fenced code blocks and inline spans on prose lines."""
+        super()._build_highlight_map()
+        if self.language != "markdown" or not self._highlight_query:
+            self._code_rows = frozenset()
+            return
+        lines = self.document.lines
+        highlights = self._highlights
+        code_rows: set[int] = set()
+        for block in codeblocks.fenced_blocks(lines):
+            end = block.close if block.close is not None else len(lines) - 1
+            code_rows.update(range(block.open, end + 1))
+            for row, start, stop, name in codeblocks.block_highlights(block, lines):
+                highlights[row].append((start, stop, name))
+        for row, line in enumerate(lines):
+            if row in code_rows or line.startswith(("    ", "\t")):
+                continue
+            for start, stop, name in codeblocks.inline_highlights(line):
+                highlights[row].append((start, stop, name))
+        self._code_rows = frozenset(code_rows)
+
+    def _render_line(self, y: int) -> Strip:
+        strip = super()._render_line(y)
+        if not self._code_rows:
+            return strip
+        try:
+            info = self.wrapped_document._offset_to_line_info[y + self.scroll_offset.y]
+        except IndexError:
+            return strip
+        if info is None or info[0] not in self._code_rows:
+            return strip
+        # Swap the plain editor background for the code tint, leaving the
+        # gutter, cursor line, selection and search hits as they are.
+        base_bg = self._theme.base_style.bgcolor if self._theme else None
+        gutter, text = strip.divide([self.gutter_width, strip.cell_length])[:2] if self.gutter_width else (None, strip)
+        segments = [
+            Segment(t, s + _CODE_BG if s is not None and s.bgcolor in (None, base_bg) else s, c)
+            for t, s, c in text
+        ]
+        text = Strip(segments, text.cell_length)
+        return Strip.join([gutter, text]) if gutter is not None else text
 
     def get_line(self, line_index: int):  # type: ignore[override]
         text = super().get_line(line_index)

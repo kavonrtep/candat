@@ -25,6 +25,11 @@ COMMANDS: list[tuple[str, str, str]] = [
     ("read-only-mode", "Toggle read-only for this buffer (C-x C-q)", "toggle_read_only"),
     ("find-file-read-only", "Open a file read-only (C-x C-r)", "find_file_read_only"),
     ("send-to-repl", "Send region or current line to the terminal (C-c C-c)", "send_to_repl"),
+    (
+        "send-code-block",
+        "Send the markdown code block at point to the terminal (C-c C-b)",
+        "send_code_block",
+    ),
     ("query-replace", "Interactive find and replace (M-%)", "query_replace"),
     ("goto-line", "Go to line number (M-g)", "goto_line"),
     ("rgrep", "Search the project tree with a regex (C-x g)", "project_search"),

@@ -54,3 +54,59 @@ def save(root: Path, files: list[dict], active: str | None) -> None:
         path.write_text(json.dumps(sessions, indent=1))
     except OSError:
         pass
+
+
+# -- markdown view mode ------------------------------------------------------
+
+# Remembered per file (absolute path) plus the last mode picked anywhere,
+# which new markdown files open in. Kept in its own file next to sessions.
+MAX_VIEW_FILES = 500
+VIEW_MODES = ("split", "only", "off")
+
+
+def views_path() -> Path:
+    return state_path().with_name("views.json")
+
+
+def _load_views() -> dict:
+    try:
+        data = json.loads(views_path().read_text())
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def view_mode(path: Path | None, default: str = "split") -> str:
+    """The markdown view to open `path` in: its own last mode, else the
+    last mode used for any file, else `default`."""
+    data = _load_views()
+    files = data.get("files")
+    if path is not None and isinstance(files, dict):
+        mode = files.get(str(path.resolve()))
+        if mode in VIEW_MODES:
+            return mode
+    mode = data.get("last")
+    return mode if mode in VIEW_MODES else default
+
+
+def save_view_mode(path: Path | None, mode: str) -> None:
+    """Remember `mode` for `path` and as the default for new files. Never
+    raises."""
+    if mode not in VIEW_MODES:
+        return
+    data = _load_views()
+    files = data.get("files")
+    if not isinstance(files, dict):
+        files = {}
+    if path is not None:
+        key = str(path.resolve())
+        files.pop(key, None)
+        files[key] = mode
+        while len(files) > MAX_VIEW_FILES:
+            files.pop(next(iter(files)))
+    target = views_path()
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps({"last": mode, "files": files}, indent=1))
+    except OSError:
+        pass

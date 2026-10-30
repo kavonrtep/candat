@@ -42,6 +42,7 @@ CTRL_X_MAP: dict[str, tuple[str, str]] = {
 # Chord table for the C-c prefix (mode-specific commands, as in emacs).
 CTRL_C_MAP: dict[str, tuple[str, str]] = {
     "ctrl+c": ("send_to_repl", "send line/region to terminal"),
+    "ctrl+b": ("send_code_block", "send markdown code block to terminal"),
     "ctrl+v": ("toggle_preview", "toggle markdown preview"),
     "ctrl+t": ("markdown_toggle_checkbox", "toggle checkbox"),
     "b": ("markdown_bold", "bold word/region"),

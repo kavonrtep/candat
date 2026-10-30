@@ -22,7 +22,10 @@ table viewer, a large-file pager, and a real shell inside.
 - **Markdown** — live side-by-side preview (scroll-synced, rendered in the
   background so big documents never block typing), plus structural editing:
   smart Enter for lists/quotes, `M-q` paragraph fill and table alignment,
-  table cell navigation, checkbox and emphasis helpers.
+  table cell navigation, checkbox and emphasis helpers. Code blocks are
+  highlighted in their language (`C-c C-b` sends one to the terminal), the
+  preview has a cursor with selection and copy, and each file remembers
+  its view (raw / preview / split).
 - **Table viewer** — `.csv`/`.tsv` (or any delimited buffer) as a table with
   no row limit, background search and regex row filter.
 - **Documents** — `.docx` and `.odt` open as rendered markdown (read-only;
@@ -109,6 +112,7 @@ to turn it into a scratch buffer, or `C-x C-f` straight into a file.
 | `C-x g` | project-wide regex search (results list, Enter jumps) |
 | `M-;` | toggle line comment |
 | `C-c C-c` | send region or current line to the terminal REPL |
+| `C-c C-b` | send the markdown code block at point to the terminal (then moves past it) |
 | `C-x t` | toggle terminal panel (keys pass through raw; only `C-x` is reserved) |
 | `Shift+PgUp/PgDn`, wheel | terminal scrollback (typing snaps back) |
 | `C-c C-v` | alternate view: markdown preview cycle, or table view of the buffer |
