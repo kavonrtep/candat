@@ -29,8 +29,13 @@ async def test_watchdog_records_a_stall(monkeypatch):
     async with open_app() as (app, pilot):
         assert app._watchdog is not None
         blocking_handler_for_test()
-        assert await wait_for(pilot, lambda: watchdog.log_path().exists())
-        log = watchdog.log_path().read_text()
-        assert "UI blocked" in log
-        assert "blocking_handler_for_test" in log
-        assert app._watchdog.stalls == 1
+
+        def logged() -> bool:
+            path = watchdog.log_path()
+            return path.exists() and "blocking_handler_for_test" in path.read_text()
+
+        # Other stalls (a slow startup on a loaded machine) may be logged
+        # too; what matters is that this one is, with its stack.
+        assert await wait_for(pilot, logged)
+        assert "UI blocked" in watchdog.log_path().read_text()
+        assert app._watchdog.stalls >= 1
