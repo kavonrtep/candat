@@ -7,6 +7,8 @@ covered by the compatibility promise.
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-10-30
+
 ### Fixed
 - **A busy REPL can no longer freeze candat.** Input to the terminal (typing,
   paste, `C-c C-c`, `C-c C-b`) is written on its own thread; when the program
